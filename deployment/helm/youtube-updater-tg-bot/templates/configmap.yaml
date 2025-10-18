@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+  labels:
+    {{- include "youtube-updater-tg-bot.labels" . | nindent 4 }}
+data:
+  database-url: {{ .Values.bot.database.url | quote }}
+  webhook-host: {{ .Values.bot.webhook.host | quote }}
+  webhook-port: {{ .Values.bot.webhook.port | quote }}
+  webhook-path: {{ .Values.bot.webhook.path | quote }}
+  log-level: {{ .Values.bot.logLevel | quote }}

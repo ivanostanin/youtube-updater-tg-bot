@@ -1,0 +1,19 @@
+apiVersion: v2
+name: youtube-updater-tg-bot
+description: A Helm chart for YouTube Updater Telegram Bot
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/username/youtube-updater-tg-bot
+sources:
+  - https://github.com/username/youtube-updater-tg-bot
+maintainers:
+  - name: nma.ro
+    email: github@nma.ro
+keywords:
+  - telegram
+  - bot
+  - youtube
+  - notifications
+annotations:
+  category: Communication

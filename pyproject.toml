@@ -1,0 +1,157 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "youtube-updater-tg-bot"
+version = "0.1.0"
+description = "A Telegram bot that provides YouTube channel updates"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+authors = [
+    { name = "nma.ro", email = "github@nma.ro" },
+]
+keywords = [
+    "telegram",
+    "bot",
+    "youtube",
+    "notifications",
+    "pubsubhubbub",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Communications :: Chat",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "python-telegram-bot==22.5",
+    "python-telegram-bot[job-queue]",
+    "starlette==0.48.0",
+    "uvicorn[standard]==0.37.0",
+    "sqlalchemy[asyncio]==2.0.43",
+    "aiosqlite==0.21.0",
+    "pydantic==2.11.10",
+    "pydantic-settings==2.11.0",
+    "httpx==0.28.1",
+    "python-multipart==0.0.20",
+    "feedparser==6.0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.4.2",
+    "pytest-asyncio==1.2.0",
+    "allure-pytest==2.15.0",
+    "ruff==0.14.0",
+    "mypy==1.18.2",
+    "pre-commit==4.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/username/youtube-updater-tg-bot"
+Repository = "https://github.com/username/youtube-updater-tg-bot"
+Issues = "https://github.com/username/youtube-updater-tg-bot/issues"
+
+[project.scripts]
+youtube-updater-tg-bot = "src.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "SIM",    # flake8-simplify
+    "TID",    # flake8-tidy-imports
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "E712",   # Avoid equality comparisons to `True`
+    "TID252", # relative imports
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+force-single-line = false
+lines-after-imports = 2
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.13"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "feedparser",
+    "telegram.*",
+    "allure_pytest",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers --strict-config"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
