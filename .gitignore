@@ -71,3 +71,18 @@ Thumbs.db
 
 # Kubernetes
 *.yaml.bak
+# BMAD (local only)
+.bmad-core/
+.bmad-*/
+web-bundles/
+AGENTS.md
+
+#Claude Code
+.claude/
+
+docs/.archive/
+
+# Node
+node_modules/
+package-lock.json
+package.json
