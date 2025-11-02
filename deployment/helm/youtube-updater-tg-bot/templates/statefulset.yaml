@@ -114,8 +114,18 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-  {{- if .Values.persistence.enabled }}
-  {{- if not .Values.persistence.existingClaim }}
+      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) .Values.volumes }}
+      volumes:
+        {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- end }}
+        {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+  {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -132,16 +142,4 @@ spec:
         resources:
           requests:
             storage: {{ .Values.persistence.size }}
-  {{- else }}
-  # Using existing PVC - mount as volume in pod spec
-  template:
-    spec:
-      volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ .Values.persistence.existingClaim }}
-        {{- with .Values.volumes }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-  {{- end }}
   {{- end }}

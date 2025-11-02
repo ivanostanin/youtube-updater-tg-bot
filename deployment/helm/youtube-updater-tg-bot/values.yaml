@@ -111,6 +111,37 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+# Example node affinity configuration to pin pod to specific node:
+#  nodeAffinity:
+#    requiredDuringSchedulingIgnoredDuringExecution:
+#      nodeSelectorTerms:
+#        - matchExpressions:
+#            - key: kubernetes.io/hostname
+#              operator: In
+#              values:
+#                - node-hostname-or-ip
+# Example pod affinity to co-locate with other pods:
+#  podAffinity:
+#    requiredDuringSchedulingIgnoredDuringExecution:
+#      - labelSelector:
+#          matchExpressions:
+#            - key: app
+#              operator: In
+#              values:
+#                - database
+#        topologyKey: "kubernetes.io/hostname"
+# Example pod anti-affinity to spread pods across nodes:
+#  podAntiAffinity:
+#    preferredDuringSchedulingIgnoredDuringExecution:
+#      - weight: 100
+#        podAffinityTerm:
+#          labelSelector:
+#            matchExpressions:
+#              - key: app.kubernetes.io/name
+#                operator: In
+#                values:
+#                  - youtube-updater-tg-bot
+#          topologyKey: "kubernetes.io/hostname"
 
 # Bot configuration
 bot:
