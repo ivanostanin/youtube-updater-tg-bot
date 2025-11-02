@@ -157,7 +157,8 @@ deactivate
 # Install from local chart
 helm install youtube-bot deployment/helm/youtube-updater-tg-bot \
   --set bot.telegramBotToken="your-bot-token" \
-  --set bot.youtubeApiKey="your-api-key"
+  --set bot.youtubeApiKey="your-api-key" \
+  --set bot.webhook.callbackUrl="https://your-domain.com/webhook/youtube"
 
 # Install with custom values file
 helm install youtube-updater-tg-bot deployment/helm/youtube-updater-tg-bot -f my-values.yaml
@@ -215,6 +216,23 @@ pip install youtube-updater-tg-bot
 - `pyproject.toml` - Main project configuration and dependencies
 - `requirements.txt` - Legacy dependency file (maintained for compatibility)
 - `.env.example` - Environment variables template
+
+### Environment Configuration
+
+**Required Environment Variables:**
+- `TELEGRAM_BOT_TOKEN` - Telegram bot token from BotFather
+- `YOUTUBE_API_KEY` - YouTube Data API v3 key
+- `WEBHOOK_CALLBACK_URL` - Full publicly accessible URL for YouTube webhook notifications
+  - **Development**: `http://localhost:8000/webhook/youtube`
+  - **Production**: Must use HTTPS (e.g., `https://<hostname>/webhook/youtube`)
+  - **Validation**: Production URLs must use HTTPS; only localhost allowed for HTTP
+
+**Optional Environment Variables:**
+- `DATABASE_URL` - Database connection string (default: `sqlite+aiosqlite:///./bot.db`)
+- `WEBHOOK_HOST` - Webhook server host (default: `localhost`)
+- `WEBHOOK_PORT` - Webhook server port (default: `8000`)
+- `WEBHOOK_PATH` - Webhook endpoint path (default: `/webhook`)
+- `LOG_LEVEL` - Logging level (default: `INFO`)
 
 ## Development Notes
 

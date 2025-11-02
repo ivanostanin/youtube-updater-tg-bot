@@ -5,6 +5,7 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, Mes
 
 from ..database.database import AsyncSessionLocal
 from ..database.repository import ChannelRepository, SubscriptionRepository, UserRepository
+from ..utils.config import settings
 from ..webhooks.pubsub import PubSubManager
 from ..youtube.api import YouTubeAPI
 
@@ -15,10 +16,7 @@ logger = logging.getLogger(__name__)
 class BotHandlers:
     def __init__(self, youtube_api: YouTubeAPI):
         self.youtube_api = youtube_api
-        self.webhook_manager = PubSubManager(
-            webhook_url="https://youtube-bot.nmro.cc/webhook/youtube"
-            # webhook_url=f"https://{settings.webhook_host}:{settings.webhook_port}/webhook/youtube"
-        )
+        self.webhook_manager = PubSubManager(webhook_url=settings.webhook_callback_url)
 
     async def manage_channel_webhook(self, channel_id: str, action: str = "subscribe") -> bool:
         """Manage webhook subscription for a YouTube channel."""

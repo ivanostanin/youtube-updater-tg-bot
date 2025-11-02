@@ -5,6 +5,7 @@ import feedparser
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from ..utils.config import settings
 
 from ..bot.notifications import NotificationService
 from ..database.database import AsyncSessionLocal
@@ -150,7 +151,7 @@ def create_webhook_app(notification_service: NotificationService) -> Starlette:
     app = Starlette()
 
     # Add routes
-    app.add_route("/webhook/youtube", handlers.youtube_webhook, methods=["GET", "POST"])
+    app.add_route(settings.webhook_path, handlers.youtube_webhook, methods=["GET", "POST"])
     app.add_route("/health", handlers.health_check, methods=["GET"])
 
     return app
