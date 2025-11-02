@@ -80,6 +80,11 @@ spec:
                 configMapKeyRef:
                   name: {{ include "youtube-updater-tg-bot.configMapName" . }}
                   key: webhook-path
+            - name: WEBHOOK_CALLBACK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+                  key: webhook-callback-url
             - name: LOG_LEVEL
               valueFrom:
                 configMapKeyRef:

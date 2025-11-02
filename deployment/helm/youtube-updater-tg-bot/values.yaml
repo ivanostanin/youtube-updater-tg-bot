@@ -132,6 +132,10 @@ bot:
     host: "0.0.0.0"
     port: 8000
     path: "/webhook"
+    # Full callback URL for YouTube webhook notifications
+    # This is the publicly accessible URL where YouTube will send notifications
+    # Example: https://<hostname>/webhook/youtube
+    callbackUrl: ""
 
   # Logging configuration
   logLevel: "INFO"

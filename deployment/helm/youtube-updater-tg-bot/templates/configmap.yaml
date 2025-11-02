@@ -9,4 +9,5 @@ data:
   webhook-host: {{ .Values.bot.webhook.host | quote }}
   webhook-port: {{ .Values.bot.webhook.port | quote }}
   webhook-path: {{ .Values.bot.webhook.path | quote }}
+  webhook-callback-url: {{ .Values.bot.webhook.callbackUrl | quote }}
   log-level: {{ .Values.bot.logLevel | quote }}
