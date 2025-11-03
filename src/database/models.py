@@ -1,8 +1,7 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_base, relationship
 
 
 Base = declarative_base()
@@ -16,7 +15,7 @@ class User(Base):
     username = Column(String, nullable=True)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     is_active = Column(Boolean, default=True)
 
     subscriptions = relationship("Subscription", back_populates="user")
@@ -31,7 +30,7 @@ class YouTubeChannel(Base):
     channel_url = Column(String, nullable=False)
     feed_url = Column(String, nullable=True)
     last_checked = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     is_active = Column(Boolean, default=True)
 
     subscriptions = relationship("Subscription", back_populates="channel")
@@ -44,7 +43,7 @@ class Subscription(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     channel_id = Column(Integer, ForeignKey("youtube_channels.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
     is_active = Column(Boolean, default=True)
     notification_enabled = Column(Boolean, default=True)
 
@@ -63,7 +62,7 @@ class Video(Base):
     url = Column(String, nullable=False)
     published_at = Column(DateTime, nullable=False)
     thumbnail_url = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     channel = relationship("YouTubeChannel", back_populates="videos")
     notifications = relationship("Notification", back_populates="video")
@@ -75,7 +74,7 @@ class Notification(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     video_id = Column(Integer, ForeignKey("videos.id"), nullable=False)
-    sent_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime, default=lambda: datetime.now(UTC))
     message_id = Column(String, nullable=True)
 
     video = relationship("Video", back_populates="notifications")

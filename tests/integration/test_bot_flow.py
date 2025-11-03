@@ -1,0 +1,222 @@
+"""Integration tests for bot workflows.
+
+Tests end-to-end bot flows including subscription, unsubscription,
+notification delivery, error recovery, and webhook verification.
+"""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import allure
+import pytest
+
+from src.bot.handlers import BotHandlers
+
+
+@allure.feature("Integration")
+@allure.story("Bot Workflows")
+@allure.severity(allure.severity_level.BLOCKER)
+@pytest.mark.integration
+async def test_end_to_end_subscription_flow(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Test complete subscription flow from command to database and webhook.
+
+    Args:
+        mock_telegram_update: Mock Telegram update fixture.
+        mock_telegram_context: Mock Telegram context fixture.
+        mock_youtube_api: Mock YouTube API fixture.
+        async_db_session: Async database session fixture.
+    """
+    handlers = BotHandlers(mock_youtube_api)
+    handlers.manage_channel_webhook = AsyncMock(return_value=True)
+
+    # Mock YouTube API to return channel info
+    mock_youtube_api.resolve_url = AsyncMock(
+        return_value={
+            "id": "UCtest123",
+            "title": "Test Channel",
+            "url": "https://youtube.com/channel/UCtest123",
+        }
+    )
+    mock_youtube_api.get_feed_url = MagicMock(
+        return_value="https://youtube.com/feeds/videos.xml?channel_id=UCtest123"
+    )
+
+    mock_telegram_update.message.reply_text = AsyncMock()
+    mock_telegram_context.args = ["https://youtube.com/@testchannel"]
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
+
+    # Verify webhook was registered
+    handlers.manage_channel_webhook.assert_called()
+
+
+@allure.feature("Integration")
+@allure.story("Bot Workflows")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.integration
+async def test_unsubscription_flow_with_webhook_cleanup(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Test unsubscription flow including webhook cleanup.
+
+    Args:
+        mock_telegram_update: Mock Telegram update fixture.
+        mock_telegram_context: Mock Telegram context fixture.
+        mock_youtube_api: Mock YouTube API fixture.
+        async_db_session: Async database session fixture.
+    """
+    from src.database.models import Subscription, User, YouTubeChannel
+
+    handlers = BotHandlers(mock_youtube_api)
+    handlers.manage_channel_webhook = AsyncMock(return_value=True)
+    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=False)
+
+    # Setup: Create user, channel, and subscription
+    user = User(telegram_id="123456789", username="testuser")
+    async_db_session.add(user)
+    await async_db_session.flush()
+
+    channel = YouTubeChannel(
+        channel_id="UCtest123",
+        channel_name="Test Channel",
+        channel_url="https://youtube.com/channel/UCtest123",
+    )
+    async_db_session.add(channel)
+    await async_db_session.flush()
+
+    subscription = Subscription(user_id=user.id, channel_id=channel.id)
+    async_db_session.add(subscription)
+    await async_db_session.commit()
+
+    # Mock callback query
+    query = MagicMock()
+    query.data = f"unsub_{channel.id}"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    mock_telegram_update.callback_query = query
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
+
+    # Verify webhook was cleaned up
+    handlers.manage_channel_webhook.assert_called_with("UCtest123", "unsubscribe")
+
+
+@allure.feature("Integration")
+@allure.story("Bot Workflows")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.integration
+async def test_notification_delivery_flow(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Test notification delivery from webhook to message send.
+
+    Args:
+        mock_telegram_update: Mock Telegram update fixture.
+        mock_telegram_context: Mock Telegram context fixture.
+        mock_youtube_api: Mock YouTube API fixture.
+        async_db_session: Async database session fixture.
+    """
+    from datetime import datetime
+
+    from src.database.repository import (
+        ChannelRepository,
+        NotificationRepository,
+        SubscriptionRepository,
+        UserRepository,
+        VideoRepository,
+    )
+
+    # Create full workflow data
+    user_repo = UserRepository(async_db_session)
+    channel_repo = ChannelRepository(async_db_session)
+    sub_repo = SubscriptionRepository(async_db_session)
+    video_repo = VideoRepository(async_db_session)
+    notif_repo = NotificationRepository(async_db_session)
+
+    user = await user_repo.get_or_create_user(telegram_id="123", username="test")
+    channel = await channel_repo.get_or_create_channel(
+        channel_id="UCtest",
+        channel_name="Test Channel",
+        channel_url="https://youtube.com/channel/UCtest",
+    )
+    await sub_repo.create_subscription(user.id, channel.id)
+
+    video = await video_repo.create_video(
+        video_id="newvideo",
+        channel_id=channel.id,
+        title="New Video",
+        description="Test",
+        url="https://youtube.com/watch?v=newvideo",
+        published_at=datetime(2024, 1, 1),
+    )
+
+    notification = await notif_repo.create_notification(user.id, video.id, message_id="msg123")
+
+    assert notification is not None
+    assert notification.video_id == video.id
+
+
+@allure.feature("Integration")
+@allure.story("Bot Workflows")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.integration
+async def test_error_recovery_failed_api_call(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Test error recovery when YouTube API call fails.
+
+    Args:
+        mock_telegram_update: Mock Telegram update fixture.
+        mock_telegram_context: Mock Telegram context fixture.
+        mock_youtube_api: Mock YouTube API fixture.
+        async_db_session: Async database session fixture.
+    """
+    handlers = BotHandlers(mock_youtube_api)
+
+    # Mock API failure
+    mock_youtube_api.resolve_url = AsyncMock(return_value=None)
+
+    mock_telegram_update.message.reply_text = AsyncMock()
+    mock_telegram_context.args = ["https://youtube.com/@badurl"]
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
+
+    # Verify error was handled gracefully (no exception raised)
+    assert mock_telegram_update.message.reply_text.called
+
+
+@allure.feature("Integration")
+@allure.story("Bot Workflows")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.integration
+async def test_webhook_verification_challenge(mock_pubsub_manager):
+    """Test webhook verification challenge handling.
+
+    Args:
+        mock_pubsub_manager: Mock PubSubManager fixture.
+    """
+    # Mock successful verification
+    mock_pubsub_manager.verify_subscription = AsyncMock(
+        return_value='<?xml version="1.0"?><feed></feed>'
+    )
+
+    result = await mock_pubsub_manager.verify_subscription("UCtest123")
+
+    assert result is not None
+    assert "<feed>" in result

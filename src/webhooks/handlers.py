@@ -5,7 +5,6 @@ import feedparser
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from ..utils.config import settings
 
 from ..bot.notifications import NotificationService
 from ..database.database import AsyncSessionLocal
@@ -15,6 +14,7 @@ from ..database.repository import (
     SubscriptionRepository,
     VideoRepository,
 )
+from ..utils.config import settings
 
 
 logger = logging.getLogger(__name__)
