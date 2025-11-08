@@ -44,6 +44,7 @@ dependencies = [
     "httpx==0.28.1",
     "python-multipart==0.0.20",
     "feedparser==6.0.12",
+    "boto3>=1.40.0",
 ]
 
 [project.optional-dependencies]

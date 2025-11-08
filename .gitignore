@@ -21,6 +21,9 @@ wheels/
 *.egg
 MANIFEST
 
+# uv
+.uv-cache/
+
 # Virtual environments
 .env
 .venv

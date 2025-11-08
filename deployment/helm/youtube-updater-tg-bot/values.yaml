@@ -171,6 +171,36 @@ bot:
   # Logging configuration
   logLevel: "INFO"
 
+objectStorage:
+  enabled: true
+  endpoint: ""
+  namespace: ""
+  region: "us-ashburn-1"
+  bucket: ""
+  prefix: "db-backups/"
+  useNamespacePath: false
+  verifySSL: true
+  accessKey: ""
+  secretKey: ""
+  lifecycleDays: 30
+  restoreOnStartup:
+    enabled: true
+    force: false
+
+backupJob:
+  enabled: true
+  schedule: "0 2 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  concurrencyPolicy: Forbid
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 # Persistent Volume for SQLite database
 persistence:
   enabled: true

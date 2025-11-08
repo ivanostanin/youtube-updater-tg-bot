@@ -11,3 +11,12 @@ data:
   webhook-path: {{ .Values.bot.webhook.path | quote }}
   webhook-callback-url: {{ .Values.bot.webhook.callbackUrl | quote }}
   log-level: {{ .Values.bot.logLevel | quote }}
+  object-storage-endpoint: {{ default "" .Values.objectStorage.endpoint | quote }}
+  object-storage-namespace: {{ default "" .Values.objectStorage.namespace | quote }}
+  object-storage-region: {{ default "" .Values.objectStorage.region | quote }}
+  object-storage-bucket: {{ default "" .Values.objectStorage.bucket | quote }}
+  object-storage-prefix: {{ default "" .Values.objectStorage.prefix | quote }}
+  object-storage-use-namespace-path: {{ ternary "true" "false" (default false .Values.objectStorage.useNamespacePath) | quote }}
+  object-storage-verify-ssl: {{ ternary "true" "false" (default true .Values.objectStorage.verifySSL) | quote }}
+  object-storage-lifecycle-days: {{ printf "%d" (default 0 .Values.objectStorage.lifecycleDays) | quote }}
+  backup-schedule: {{ .Values.backupJob.schedule | quote }}

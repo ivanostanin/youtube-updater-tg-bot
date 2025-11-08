@@ -3,6 +3,7 @@ import logging
 import uvicorn
 
 from .bot.bot import YouTubeUpdaterBot
+from .storage.startup import ensure_database_backup
 from .utils.config import settings
 from .utils.logging import setup_logging
 from .webhooks.handlers import create_webhook_app
@@ -69,6 +70,8 @@ class Application:
             # Setup logging first (synchronously)
             setup_logging()
             logger.info("Setting up YouTube Updater Bot application...")
+
+            ensure_database_backup(settings.database_url)
 
             # Initialize bot first to get notification service
             import asyncio

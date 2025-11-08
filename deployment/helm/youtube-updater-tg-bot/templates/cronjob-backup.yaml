@@ -1,0 +1,43 @@
+{{- if and .Values.backupJob.enabled .Values.objectStorage.enabled .Values.persistence.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "youtube-updater-tg-bot.fullname" . }}-backup
+  labels:
+    {{- include "youtube-updater-tg-bot.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.backupJob.schedule | quote }}
+  concurrencyPolicy: {{ .Values.backupJob.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.backupJob.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.backupJob.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "youtube-updater-tg-bot.labels" . | nindent 12 }}
+        spec:
+          serviceAccountName: {{ include "youtube-updater-tg-bot.serviceAccountName" . }}
+          restartPolicy: OnFailure
+          containers:
+            - name: database-backup
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - python
+                - "-u"
+                - scripts/backup-db.py
+                - "--database-path"
+                - {{ printf "%s/bot.db" .Values.persistence.mountPath | quote }}
+              env:
+                {{- include "youtube-updater-tg-bot.objectStorageEnv" . | nindent 16 }}
+              resources:
+                {{- toYaml .Values.backupJob.resources | nindent 16 }}
+              volumeMounts:
+                - name: data
+                  mountPath: {{ .Values.persistence.mountPath }}
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ include "youtube-updater-tg-bot.dataPvcName" . }}
+{{- end }}

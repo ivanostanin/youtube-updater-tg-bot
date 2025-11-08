@@ -185,6 +185,40 @@ helm upgrade youtube-updater-tg-bot deployment/helm/youtube-updater-tg-bot
 helm uninstall youtube-updater-tg-bot
 ```
 
+### Database Backup & Restore
+
+- **Helm values**: Configure OCI Object Storage via `objectStorage.*` keys (endpoint, namespace, region, bucket, prefix, access/secret keys, lifecycleDays). Daily CronJob settings live under `backupJob.*`. Example override:
+  ```yaml
+  objectStorage:
+    endpoint: "https://<namespace>.compat.objectstorage.<region>.oraclecloud.com"
+    namespace: "<namespace>"
+    region: "<region>"
+    bucket: "youtube-updater-backups"
+    prefix: "db-backups/"
+    accessKey: "${OCI_ACCESS_KEY}"
+    secretKey: "${OCI_SECRET_KEY}"
+    lifecycleDays: 30
+  backupJob:
+    schedule: "0 2 * * *"
+  ```
+- **CronJob**: `kubectl logs cronjob/<release>-backup` verifies uploads at 02:00 UTC. The job mounts the same PVC as the StatefulSet.
+- **Startup auto-restore**: Init container runs `python scripts/restore-db.py --destination-path /app/data/bot.db` when the database file is missing.
+- **Manual validation (MinIO/OCI compatible)**:
+  1. Export credentials/environment variables (`OBJECT_STORAGE_*`) and run `python scripts/backup-db.py --database-path ./data/bot.db`.
+  2. Delete `data/bot.db`, then run `python scripts/restore-db.py --destination-path ./data/bot.db`.
+  3. Start the bot; it restores automatically if the DB is absent and logs success (`Database restore completed`).
+- **Retention policy**: Apply 30-day lifecycle with OCI CLI (replace placeholders):
+  ```bash
+  oci os object-lifecycle-policy put \
+    --bucket-name youtube-updater-backups \
+    --namespace <namespace> \
+    --items '[
+      {"action":"DELETE","timeAmount":30,"timeUnit":"DAYS","isEnabled":true,
+       "objectNameFilter":{"prefix":"db-backups/"}}
+    ]'
+  ```
+- **Troubleshooting**: `python scripts/backup-db.py --object-prefix test/ --database-path /tmp/bot.db` uploads test artifacts; `python scripts/restore-db.py --force` overwrites existing files for recovery drills.
+
 ## Testing
 
 - **Framework**: pytest

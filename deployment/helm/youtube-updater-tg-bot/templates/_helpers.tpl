@@ -73,6 +73,75 @@ Create the name of the persistent volume claim to use
 {{- end }}
 
 {{/*
+Resolve the bound PVC name for stateful workloads.
+*/}}
+{{- define "youtube-updater-tg-bot.dataPvcName" -}}
+{{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
+{{- .Values.persistence.existingClaim }}
+{{- else if .Values.persistence.enabled }}
+data-{{ include "youtube-updater-tg-bot.fullname" . }}-0
+{{- else }}
+""{{/* no pvc when persistence disabled */}}
+{{- end }}
+{{- end }}
+
+{{/*
+Shared object storage environment variables.
+*/}}
+{{- define "youtube-updater-tg-bot.objectStorageEnv" -}}
+- name: OBJECT_STORAGE_ENDPOINT
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-endpoint
+- name: OBJECT_STORAGE_NAMESPACE
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-namespace
+- name: OBJECT_STORAGE_REGION
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-region
+- name: OBJECT_STORAGE_BUCKET
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-bucket
+- name: OBJECT_STORAGE_PREFIX
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-prefix
+- name: OBJECT_STORAGE_USE_NAMESPACE_PATH
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-use-namespace-path
+- name: OBJECT_STORAGE_VERIFY_SSL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-verify-ssl
+- name: OBJECT_STORAGE_LIFECYCLE_DAYS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "youtube-updater-tg-bot.configMapName" . }}
+      key: object-storage-lifecycle-days
+- name: OBJECT_STORAGE_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "youtube-updater-tg-bot.secretName" . }}
+      key: object-storage-access-key
+- name: OBJECT_STORAGE_SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "youtube-updater-tg-bot.secretName" . }}
+      key: object-storage-secret-key
+{{- end }}
+
+{{/*
 Create secret name for bot credentials
 */}}
 {{- define "youtube-updater-tg-bot.secretName" -}}
