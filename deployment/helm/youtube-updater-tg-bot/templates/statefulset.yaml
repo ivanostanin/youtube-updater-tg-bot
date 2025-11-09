@@ -31,7 +31,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "youtube-updater-tg-bot.serviceAccountName" . }}
-      {{- if and .Values.persistence.enabled .Values.objectStorage.restoreOnStartup.enabled }}
+      {{- if and .Values.persistence.enabled .Values.objectStorage.enabled .Values.objectStorage.restoreOnStartup.enabled }}
       initContainers:
         - name: restore-database
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"

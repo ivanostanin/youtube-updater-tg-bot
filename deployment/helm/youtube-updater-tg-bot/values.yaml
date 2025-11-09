@@ -172,7 +172,7 @@ bot:
   logLevel: "INFO"
 
 objectStorage:
-  enabled: true
+  enabled: false
   endpoint: ""
   namespace: ""
   region: "us-ashburn-1"

@@ -66,10 +66,16 @@ def main() -> None:
     _configure_logging()
     args = parse_args()
     try:
-        config = build_storage_config(args)
+        config = build_storage_config(args, require_bucket=False)
     except StorageConfigurationError as exc:
         logger.error("Storage configuration error: %s", exc)
         raise SystemExit(2) from exc
+
+    if not config.is_configured():
+        logger.info(
+            "Object storage configuration missing; skipping restore (no bucket provided)",
+        )
+        return
 
     destination = Path(args.destination_path)
     if destination.exists() and not args.force:

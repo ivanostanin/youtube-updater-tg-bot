@@ -127,8 +127,22 @@ def add_storage_arguments(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(use_namespace_path=None, verify_ssl=None)
 
 
-def build_storage_config(args: argparse.Namespace | None = None) -> ObjectStorageConfig:
-    """Build storage configuration from environment variables and CLI args."""
+def build_storage_config(
+    args: argparse.Namespace | None = None,
+    *,
+    require_bucket: bool = True,
+) -> ObjectStorageConfig:
+    """Build storage configuration from environment variables and CLI args.
+
+    Parameters
+    ----------
+    args:
+        Parsed CLI namespace providing overrides for storage fields.
+    require_bucket:
+        When ``True`` (default), raise ``StorageConfigurationError`` if no bucket
+        configuration is present. When ``False``, return a partially configured
+        ``ObjectStorageConfig`` so callers can decide how to proceed.
+    """
 
     def _env(name: str, default: str | None = None) -> str | None:
         return os.getenv(f"{_ENV_PREFIX}{name}", default)
@@ -197,7 +211,7 @@ def build_storage_config(args: argparse.Namespace | None = None) -> ObjectStorag
         profile_name=profile,
     )
 
-    if not config.bucket:
+    if require_bucket and not config.bucket:
         raise StorageConfigurationError(
             "OBJECT_STORAGE_BUCKET (or --bucket) must be set for backup operations.",
         )

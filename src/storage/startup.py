@@ -53,11 +53,18 @@ def ensure_database_backup(database_url: str, *, force: bool = False) -> None:
         return
 
     try:
-        config = build_storage_config()
+        config = build_storage_config(require_bucket=False)
     except StorageConfigurationError as exc:
         logger.warning(
             "Object storage configuration incomplete; skipping database auto-restore",
             extra={"reason": str(exc)},
+        )
+        return
+
+    if not config.is_configured():
+        logger.info(
+            "Object storage not configured; skipping database auto-restore",
+            extra={"reason": "bucket not provided"},
         )
         return
 

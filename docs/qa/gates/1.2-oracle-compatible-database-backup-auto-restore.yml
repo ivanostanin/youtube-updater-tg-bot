@@ -1,0 +1,35 @@
+schema: 1
+story: "1.2"
+story_title: "Oracle-Compatible Database Backup & Auto-Restore"
+gate: PASS
+status_reason: "Restore path now skips gracefully without configuration and Helm guards prevent crash loops; implementation meets release bar."
+reviewer: "Quinn (Test Architect)"
+updated: "2025-11-24T09:00:00Z"
+top_issues: []
+waiver: { active: false }
+quality_score: 95
+evidence:
+  tests_reviewed: 12
+  risks_identified: 2
+  trace:
+    ac_covered: [1, 2, 3, 4, 6, 7, 8]
+    ac_gaps: [5]
+nfr_validation:
+  security:
+    status: PASS
+    notes: "Credentials remain in Kubernetes Secrets; no hardcoded secrets detected."
+  performance:
+    status: PASS
+    notes: "Backup/restore flow remains on-demand without new steady-state overhead."
+  reliability:
+    status: PASS
+    notes: "Restore CLI tolerates missing configuration and Helm only enables init job when storage is configured."
+  maintainability:
+    status: PASS
+    notes: "New CLI regression tests close coverage gaps and shared helpers centralize configuration logic."
+recommendations:
+  immediate: []
+  future:
+    - action: "Keep operator runbooks clear that enabling objectStorage requires supplying bucket credentials to avoid silent skips."
+      refs:
+        - deployment/helm/youtube-updater-tg-bot/values.yaml:174

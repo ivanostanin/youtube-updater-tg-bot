@@ -39,5 +39,5 @@ spec:
           volumes:
             - name: data
               persistentVolumeClaim:
-                claimName: {{ include "youtube-updater-tg-bot.dataPvcName" . }}
+                claimName: {{ include "youtube-updater-tg-bot.dataPvcName" . | trim | quote }}
 {{- end }}
