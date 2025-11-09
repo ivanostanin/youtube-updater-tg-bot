@@ -1,14 +1,27 @@
 """Unit tests for configuration settings."""
 
+import allure
 import pytest
 from pydantic import ValidationError
 
 from src.utils.config import Settings
 
 
+FEATURE = "Configuration"
+STORY = "Settings Validation"
+LIFECYCLE_STORY = "Settings Lifecycle"
+pytestmark = [pytest.mark.unit]
+
+
 class TestSettingsWebhookCallbackUrl:
     """Test webhook_callback_url field validation."""
 
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.1-UNIT-001")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P1")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_default_value(self, monkeypatch):
         """Test that default value is set correctly for development."""
         # Clear environment variable to ensure default is used
@@ -16,6 +29,12 @@ class TestSettingsWebhookCallbackUrl:
         settings = Settings()
         assert settings.webhook_callback_url == "http://localhost:8000/webhook/youtube"
 
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.1-UNIT-002")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P0")
+    @allure.severity(allure.severity_level.CRITICAL)
     def test_load_from_environment(self, monkeypatch):
         """Test loading webhook_callback_url from environment variable."""
         test_url = "https://example.com/webhook/youtube"
@@ -23,6 +42,12 @@ class TestSettingsWebhookCallbackUrl:
         settings = Settings()
         assert settings.webhook_callback_url == test_url
 
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.1-UNIT-003")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P0")
+    @allure.severity(allure.severity_level.CRITICAL)
     def test_https_production_url_accepted(self, monkeypatch):
         """Test that HTTPS URLs for production are accepted."""
         test_url = "https://youtube-bot.nmro.cc/webhook/youtube"
@@ -30,6 +55,12 @@ class TestSettingsWebhookCallbackUrl:
         settings = Settings()
         assert settings.webhook_callback_url == test_url
 
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.1-UNIT-004")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P1")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_localhost_http_accepted(self, monkeypatch):
         """Test that localhost HTTP URLs are accepted for development."""
         test_urls = [
@@ -42,6 +73,12 @@ class TestSettingsWebhookCallbackUrl:
             settings = Settings()
             assert settings.webhook_callback_url == url
 
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.1-UNIT-005")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P0")
+    @allure.severity(allure.severity_level.BLOCKER)
     def test_http_production_url_rejected(self, monkeypatch):
         """Test that HTTP URLs for production (non-localhost) are rejected."""
         invalid_urls = [
@@ -55,6 +92,12 @@ class TestSettingsWebhookCallbackUrl:
                 Settings()
             assert "Production webhook callback URL must use HTTPS" in str(exc_info.value)
 
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.1-UNIT-006")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P1")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_https_validation_error_message(self, monkeypatch):
         """Test that validation error message is clear and helpful."""
         monkeypatch.setenv("WEBHOOK_CALLBACK_URL", "http://example.com/webhook/youtube")
@@ -64,6 +107,12 @@ class TestSettingsWebhookCallbackUrl:
         assert "HTTPS" in error_message
         assert "localhost" in error_message
 
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.1-UNIT-007")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P1")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_custom_localhost_port(self, monkeypatch):
         """Test that localhost with custom ports works."""
         test_url = "http://localhost:9000/custom/path"
@@ -75,6 +124,12 @@ class TestSettingsWebhookCallbackUrl:
 class TestSettingsIntegration:
     """Integration tests for Settings class."""
 
+    @allure.feature(FEATURE)
+    @allure.story(LIFECYCLE_STORY)
+    @allure.label("test_id", "1.1-UNIT-008")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P1")
+    @allure.severity(allure.severity_level.NORMAL)
     def test_settings_singleton_behavior(self):
         """Test that settings maintains consistent values."""
         from src.utils.config import settings as settings1
@@ -82,6 +137,12 @@ class TestSettingsIntegration:
 
         assert settings1.webhook_callback_url == settings2.webhook_callback_url
 
+    @allure.feature(FEATURE)
+    @allure.story(LIFECYCLE_STORY)
+    @allure.label("test_id", "1.1-UNIT-009")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P0")
+    @allure.severity(allure.severity_level.CRITICAL)
     def test_all_required_fields_present(self, monkeypatch):
         """Test that all required configuration fields are accessible."""
         # Set required environment variables
