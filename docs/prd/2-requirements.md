@@ -58,11 +58,11 @@
 
 **NFR9:** The application SHALL implement graceful shutdown, closing database connections and stopping bot polling cleanly on SIGTERM.
 
-**NFR10:** Database backups SHALL be performed daily with 30-day retention in S3-compatible storage.
+**NFR10:** Database backups SHALL run daily with 30-day retention using an S3-compatible object storage endpoint (OCI Object Storage by default, configurable for AWS S3 fallback).
 
 ### Security
 
-**NFR11:** API credentials (Telegram token, YouTube API key, S3 credentials) SHALL be stored in environment variables or Kubernetes secrets, never committed to source code.
+**NFR11:** API credentials (Telegram token, YouTube API key, OCI object storage access/secret keys) SHALL be stored in environment variables or Kubernetes secrets, never committed to source code.
 
 **NFR12:** All webhook endpoints SHALL require HTTPS in production environments.
 

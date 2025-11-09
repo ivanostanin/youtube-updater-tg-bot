@@ -201,7 +201,9 @@ helm uninstall youtube-updater-tg-bot
   backupJob:
     schedule: "0 2 * * *"
   ```
+- **Credential prerequisite**: Keep `objectStorage.enabled` set to `false` until the access and secret keys are populated in the chart Secret (or external secrets provider). Enabling backups without credentials causes the restore init container and backup CronJob to no-op, leaving deployments without protection.
 - **CronJob**: `kubectl logs cronjob/<release>-backup` verifies uploads at 02:00 UTC. The job mounts the same PVC as the StatefulSet.
+- **Integration pipeline**: Install dev dependencies (`uv sync --group dev`) and ensure `pytest-docker` is available, then run `UV_CACHE_DIR=.uv-cache uv run pytest tests/integration/test_backup_restore_minio.py -m integration -k minio`. The test suite auto-starts a MinIO container via `pytest-docker` and validates backup, restore, and lifecycle retention commands end-to-end (tests skip automatically if the plugin or Docker is unavailable).
 - **Startup auto-restore**: Init container runs `python scripts/restore-db.py --destination-path /app/data/bot.db` when the database file is missing.
 - **Manual validation (MinIO/OCI compatible)**:
   1. Export credentials/environment variables (`OBJECT_STORAGE_*`) and run `python scripts/backup-db.py --database-path ./data/bot.db`.

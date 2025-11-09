@@ -55,7 +55,7 @@
 
 ## Technical Preparation
 
-1. **Setup S3 Bucket:** Create bucket for database backups (Story 1.2 prerequisite)
+1. **Provision OCI Object Storage Bucket:** Create S3-compatible bucket/namespace for database backups (Story 1.2 prerequisite)
 2. **Allure Installation:** Install Allure CLI locally for test report generation
 3. **GitHub Secrets:** Prepare secrets for CI/CD (Docker Hub credentials, etc.)
 

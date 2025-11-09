@@ -85,41 +85,41 @@ so that **dev/staging/prod environments don't interfere with each other**.
 
 ---
 
-### Story 1.2: Implement Database Backup to S3
+### Story 1.2: Oracle-Compatible Database Backup & Auto-Restore
 
 **Priority:** P0 (Critical)
 **Effort:** 5 story points
 **Sprint:** 1
 
 As a **system administrator**,
-I want **automated SQLite database backups to S3**,
-so that **user subscriptions are protected against data loss**.
+I want **automated SQLite database backups stored in OCI Object Storage's S3-compatible endpoint and automatic recovery when the bot starts and no database is present**,
+so that **user subscriptions remain protected and recoverable in OCI deployments**.
 
 **Acceptance Criteria:**
 
-1. **AC1:** Create Python script `scripts/backup-db.py` that uploads `bot.db` to S3 with timestamp
-2. **AC2:** Implement restore script `scripts/restore-db.py` that downloads latest backup by date
-3. **AC3:** Add Kubernetes CronJob manifest to Helm chart (daily backups at 02:00 UTC)
-4. **AC4:** Configure AWS credentials via Kubernetes secrets (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-5. **AC5:** Add backup metadata (timestamp, SHA256 checksum, file size) to S3 object metadata
-6. **AC6:** Test backup and restore procedures manually in dev environment
-7. **AC7:** Document backup/restore process in CLAUDE.md (operator runbook)
-8. **AC8:** Add S3 bucket lifecycle policy for 30-day retention
+1. **AC1:** `scripts/backup-db.py` uploads `bot.db` to an S3-compatible bucket using configurable endpoint/namespace/region settings that work with OCI Object Storage; default behaviour continues to work with AWS S3 when endpoint overrides are not provided.
+2. **AC2:** `scripts/restore-db.py` lists and downloads the most recent backup using the same OCI-compatible configuration, validates checksum metadata, and surfaces clear errors when no backups are available.
+3. **AC3:** Bot startup sequence (entrypoint or init container) checks for the presence of `bot.db`; when the file is missing it restores the latest backup from the bucket before launching the bot, logging success/failure.
+4. **AC4:** Daily backup CronJob runs at 02:00 UTC using the updated backup script and injects all OCI object storage configuration and credentials from Kubernetes values/secrets without hardcoding provider-specific values.
+5. **AC5:** Helm `values.yaml` and associated templates expose configuration keys for OCI object storage (namespace, region, bucket name, S3-compatible endpoint URL, access key, secret key) and document how to override them per environment.
+6. **AC6:** Unit tests cover backup/restore helpers and startup recovery logic (mocking boto3 and filesystem) including success, missing backup, and checksum mismatch scenarios.
+7. **AC7:** Manual validation steps are executed (or documented) showing that backup/restore work against an OCI-compatible endpoint and that startup recovery succeeds when the database volume is empty.
+8. **AC8:** Backup retention policy (30-day lifecycle) is defined for OCI Object Storage, documented, and linked to either terraform/CLI snippets or operator runbook steps.
 
 **Integration Verification:**
 
-- **IV1:** Backup script runs without disrupting bot operations (test during active use)
-- **IV2:** Restored database contains all subscriptions and channels (data integrity check)
-- **IV3:** Bot reconnects to restored database successfully after pod restart
-- **IV4:** No data corruption after restore (verify with test queries)
+- **IV1:** Backup CronJob completes successfully against the configured OCI Object Storage bucket (verify via logs and OCI console).
+- **IV2:** Automatic startup restore repopulates subscriptions after deleting the persistent volume or simulating an empty volume.
+- **IV3:** Application startup is a no-op when the database already exists (no redundant restores).
+- **IV4:** Restored database integrity is validated with subscription queries and checksum metadata.
 
 **Technical Notes:**
-- Use `boto3` library for S3 operations (add to dependencies: `boto3>=1.34.0`)
-- S3 bucket path: `s3://youtube-bot-backups/db-backups/bot-{timestamp}.db`
-- Timestamp format: ISO 8601 (e.g., `2025-11-01T02-00-00Z`)
-- Backup retention: 30 days (S3 lifecycle policy)
-- Alternative: Use S3-compatible storage (MinIO, Backblaze B2) for cost savings
-- Reference: Risk #7 in Technical Specifications
+- Use `boto3` with custom `endpoint_url`, namespace-aware bucket paths, and optional namespace-prefix toggles to support OCI as well as standard AWS deployments.
+- Shared configuration lives in `src/storage/config.py` and is exposed to scripts via `scripts/common/storage_config.py`.
+- Startup recovery helper (`src/storage/startup.py`) integrates with Kubernetes init containers/pre-start hooks to restore the latest backup when `bot.db` is missing.
+- Helm `objectStorage` values supply endpoint, namespace, region, bucket, prefix, and credential settings; ConfigMap/Secret templates project them into the CronJob and application pod.
+- Backup metadata (timestamp, SHA256 checksum, file size, namespace) remains attached to uploaded objects to support verification.
+- Reference: Risk #7 in Technical Specifications.
 
 ---
 

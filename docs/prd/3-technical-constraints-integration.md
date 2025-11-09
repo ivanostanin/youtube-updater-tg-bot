@@ -341,8 +341,8 @@ python -m build
 - Graceful shutdown: SIGTERM handling in `main.py` `cleanup()`
 
 **Database Backup Strategy:**
-- **SQLite:** Scheduled CronJob copies db to S3 (daily at 02:00 UTC)
-- **Restore:** InitContainer fetches latest backup on pod start if db missing
+- **SQLite:** Scheduled CronJob copies `bot.db` to the configured S3-compatible object storage endpoint (OCI Object Storage by default) daily at 02:00 UTC using Helm-provided credentials and settings.
+- **Restore:** InitContainer/startup hook fetches the latest verified backup from the same object storage configuration when `bot.db` is missing, logging outcomes and gracefully handling empty buckets.
 - **PostgreSQL migration:** Use managed service (RDS, Cloud SQL) with automated backups
 
 ### Monitoring and Logging
@@ -386,6 +386,17 @@ python -m build
 - `WEBHOOK_PATH`: `/webhook`
 - `WEBHOOK_CALLBACK_URL`: (to be added - Story 1.1)
 - `LOG_LEVEL`: `INFO`
+
+**Backup & Restore Configuration (Story 1.2):**
+- `OBJECT_STORAGE_ENDPOINT`: Custom S3-compatible endpoint URL (set for OCI Object Storage; leave blank for AWS default).
+- `OBJECT_STORAGE_NAMESPACE`: OCI namespace used for bucket addressing (optional for AWS).
+- `OBJECT_STORAGE_REGION`: Region for the object storage client (e.g., `us-ashburn-1`).
+- `OBJECT_STORAGE_BUCKET`: Bucket name (required when backups are enabled; prefix namespace if required by provider).
+- `OBJECT_STORAGE_PREFIX`: Object key prefix (default `db-backups/`).
+- `OBJECT_STORAGE_USE_NAMESPACE_PATH`: `"true"`/`"false"` flag to toggle namespace-prefixed paths for OCI compatibility.
+- `OBJECT_STORAGE_VERIFY_SSL`: `"true"`/`"false"` flag controlling SSL verification against custom endpoints.
+- `OBJECT_STORAGE_LIFECYCLE_DAYS`: Integer string representing retention window (default `30`).
+- `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY`: Credentials injected via Kubernetes Secret for backup/restore scripts.
 
 **Kubernetes Deployment:**
 ```bash
@@ -478,8 +489,8 @@ env:
 - **Probability:** LOW - Helm chart includes PVC, but misconfiguration possible
 - **Mitigation:**
   - Mandatory PVC in Helm chart (cannot be disabled)
-  - Automated S3 backups (**Story 1.2 - P0**)
-  - Restore on startup: Check S3 for latest backup if `bot.db` missing
+  - Automated OCI object storage (S3-compatible) backups (**Story 1.2 - P0**)
+  - Restore on startup: Check the configured object storage for the latest backup if `bot.db` missing
   - Test restore procedure regularly (monthly)
   - PostgreSQL migration eliminates this risk (Story 1.10)
 
@@ -500,7 +511,7 @@ env:
 | Priority | Risk | Action | Timeline |
 |----------|------|--------|----------|
 | **P0** | Hardcoded webhook URL | Move to configuration (Story 1.1) | Sprint 1 |
-| **P0** | Database backups | Implement S3 backup CronJob (Story 1.2) | Sprint 1 |
+| **P0** | Database backups | Implement S3-compatible backup CronJob with OCI Object Storage (Story 1.2) | Sprint 1 |
 | **P1** | YouTube quota monitoring | Add quota usage metrics (Story 1.5) | Sprint 3 |
 | **P1** | Telegram rate limiting | Implement message queue | Sprint 3-4 |
 | **P2** | SQLite→PostgreSQL | Plan migration, test under load (Story 1.10) | Sprint 5 or backlog |
@@ -508,4 +519,3 @@ env:
 | **P3** | Secrets rotation | Document rotation procedure | Sprint 2 |
 
 ---
-
