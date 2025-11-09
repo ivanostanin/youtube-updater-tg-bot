@@ -7,12 +7,14 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import allure
 import boto3
 import pytest
 
 from src.storage.backup import perform_backup
 from src.storage.config import ObjectStorageConfig
 from src.storage.restore import restore_latest_backup
+
 
 try:  # pragma: no cover - optional dependency
     import pytest_docker.plugin  # noqa: F401
@@ -22,12 +24,17 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for restricted envs
     HAVE_PYTEST_DOCKER = False
 
 
-pytestmark = pytest.mark.skipif(
-    not HAVE_PYTEST_DOCKER,
-    reason="pytest-docker is required for MinIO integration tests.",
-)
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not HAVE_PYTEST_DOCKER,
+        reason="pytest-docker is required for MinIO integration tests.",
+    ),
+]
 
 
+FEATURE = "Backup-Restore"
+STORY = "Oracle Cloud Backup Restore"
 MINIO_ACCESS_KEY = "minioadmin"
 MINIO_SECRET_KEY = "minioadmin"
 MINIO_REGION = "us-east-1"
@@ -117,6 +124,12 @@ def _make_config(endpoint: str) -> ObjectStorageConfig:
     )
 
 
+@allure.feature(FEATURE)
+@allure.story(STORY)
+@allure.label("test_id", "1.2-INT-006")
+@allure.label("level", "Integration")
+@allure.label("priority", "P0")
+@allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.integration
 @pytest.mark.slow
 def test_backup_and_restore_pipeline_against_minio(
@@ -143,6 +156,12 @@ def test_backup_and_restore_pipeline_against_minio(
     assert restored_path.read_text() == "integration-backup"
 
 
+@allure.feature(FEATURE)
+@allure.story(STORY)
+@allure.label("test_id", "1.2-INT-005")
+@allure.label("level", "Integration")
+@allure.label("priority", "P1")
+@allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.integration
 @pytest.mark.slow
 def test_lifecycle_policy_command_supported(minio_endpoint: str, minio_client):

@@ -9,8 +9,8 @@ top_issues: []
 waiver: { active: false }
 quality_score: 95
 evidence:
-  tests_reviewed: 12
-  risks_identified: 2
+  tests_reviewed: 14
+  risks_identified: 1
   trace:
     ac_covered: [1, 2, 3, 4, 6, 7, 8]
     ac_gaps: [5]
@@ -26,10 +26,10 @@ nfr_validation:
     notes: "Restore CLI tolerates missing configuration and Helm only enables init job when storage is configured."
   maintainability:
     status: PASS
-    notes: "New CLI regression tests close coverage gaps and shared helpers centralize configuration logic."
+    notes: "Helm and MinIO integration suites close prior coverage gaps; documentation guard for objectStorage config remains outstanding."
 recommendations:
   immediate: []
   future:
-    - action: "Keep operator runbooks clear that enabling objectStorage requires supplying bucket credentials to avoid silent skips."
+    - action: "Add regression check ensuring required objectStorage keys exist when feature enabled."
       refs:
         - deployment/helm/youtube-updater-tg-bot/values.yaml:174

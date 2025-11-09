@@ -4,21 +4,24 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Iterable, Mapping
 
+import allure
 import pytest
 import yaml
 
 
-CHART_DIR = (
-    Path(__file__).resolve().parents[2] / "deployment" / "helm" / "youtube-updater-tg-bot"
-)
+CHART_DIR = Path(__file__).resolve().parents[2] / "deployment" / "helm" / "youtube-updater-tg-bot"
 
 
 def _require_helm() -> None:
     if not shutil.which("helm"):
         pytest.skip("helm binary is required for Helm template rendering tests")
+
+
+FEATURE = "Backup-Restore"
+STORY = "Oracle Cloud Backup Restore"
 
 
 def _render_chart(extra_set: Mapping[str, str] | None = None) -> list[dict]:
@@ -42,16 +45,32 @@ def _find_kind(documents: Iterable[dict], kind: str) -> list[dict]:
     return [doc for doc in documents if doc.get("kind") == kind]
 
 
+@allure.feature(FEATURE)
+@allure.story(STORY)
+@allure.label("test_id", "1.2-INT-003A")
+@allure.label("level", "Integration")
+@allure.label("priority", "P1")
+@allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.integration
 def test_backup_cronjob_not_rendered_without_object_storage():
     """CronJob is omitted when object storage is disabled."""
     documents = _render_chart(
-        {"objectStorage.enabled": "false", "backupJob.enabled": "true", "persistence.enabled": "true"}
+        {
+            "objectStorage.enabled": "false",
+            "backupJob.enabled": "true",
+            "persistence.enabled": "true",
+        }
     )
     cronjobs = _find_kind(documents, "CronJob")
     assert not cronjobs, "CronJob should not render when object storage is disabled"
 
 
+@allure.feature(FEATURE)
+@allure.story(STORY)
+@allure.label("test_id", "1.2-INT-003")
+@allure.label("level", "Integration")
+@allure.label("priority", "P1")
+@allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.integration
 def test_backup_cronjob_renders_with_expected_environment():
     """CronJob renders when object storage enabled with complete env wiring."""

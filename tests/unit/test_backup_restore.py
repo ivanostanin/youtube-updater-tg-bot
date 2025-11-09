@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import importlib.util
+import io
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +21,7 @@ from src.storage.exceptions import (
     StorageConfigurationError,
 )
 from src.storage.restore import restore_latest_backup
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 FEATURE = "Backup-Restore"
@@ -423,6 +424,7 @@ def test_restore_cli_force_overwrites(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "restore_latest_backup", fake_restore)
     module.main()
     assert destination.read_text() == "restored"
+
 
 @allure.feature(FEATURE)
 @allure.story(STORY)
