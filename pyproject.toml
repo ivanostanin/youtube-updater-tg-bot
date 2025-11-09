@@ -66,6 +66,7 @@ Repository = "https://github.com/username/youtube-updater-tg-bot"
 Issues = "https://github.com/username/youtube-updater-tg-bot/issues"
 
 [project.scripts]
+clean-allure = "src.utils.allure_cleanup:main"
 youtube-updater-tg-bot = "src.main:main"
 
 [tool.hatch.build.targets.wheel]
