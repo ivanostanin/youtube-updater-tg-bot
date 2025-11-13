@@ -5,8 +5,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    telegram_bot_token: str = Field(..., description="Telegram Bot Token from BotFather")
-    youtube_api_key: str = Field(..., description="YouTube Data API v3 Key")
+    telegram_bot_token: str = Field(default="", description="Telegram Bot Token from BotFather")
+    youtube_api_key: str = Field(default="", description="YouTube Data API v3 Key")
     database_url: str = Field(default="sqlite+aiosqlite:///./bot.db", description="Database URL")
     webhook_host: str = Field(
         default="localhost", description="Webhook host for receiving notifications"

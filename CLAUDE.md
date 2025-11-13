@@ -51,6 +51,9 @@ pytest
 # Run tests with Allure reporting
 pytest --alluredir=allure-results
 
+# Generate local Allure HTML report
+allure generate allure-results --clean -o allure-report
+
 # Code formatting and linting (ruff)
 ruff check src/ tests/
 ruff check --fix src/ tests/
@@ -107,6 +110,12 @@ pip install -e .
 # Deactivate virtual environment
 deactivate
 ```
+
+### CI/CD
+- GitHub Actions workflow `CI` (`.github/workflows/main.yml`) runs on pushes to `master` and on every pull request. It executes `ruff check`, `mypy`, and `pytest --alluredir=allure-results --cov=src` so failures block merges; configure a branch protection rule on `master` that requires the `CI` check.
+- Successful workflow runs publish Allure HTML reports to GitHub Pages at `https://ivanostanin.github.io/youtube-updater-tg-bot/allure-latest/`. Raw `allure-results` artifacts (30-day retention) and `coverage.xml` are uploaded with each run for traceability and future badge automation.
+- For troubleshooting, download the `allure-report` artifact from the workflow run or regenerate locally using the commands above; publishing to Pages occurs only on successful pushes to `master`.
+- To test the workflow locally, install [act](https://github.com/nektos/act) plus Docker, rely on the checked-in `.actrc` (maps `ubuntu-latest` to `catthehacker/ubuntu:act-latest`), and run `act pull_request -W .github/workflows/main.yml -j tests`. Provide secrets via `-s` flags or `.secrets` when needed.
 
 ## Architecture & Features
 
@@ -235,13 +244,13 @@ This project uses `pyproject.toml` for modern Python package management:
 ### Installation Options
 ```bash
 # Development installation with all dev dependencies
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Production installation (core dependencies only)
-pip install -e .
+uv pip install -e .
 
 # From PyPI (when published)
-pip install youtube-updater-tg-bot
+uv pip install youtube-updater-tg-bot
 ```
 
 ### Dependencies

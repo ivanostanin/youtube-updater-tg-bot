@@ -62,6 +62,7 @@ htmlcov/
 .nox/
 allure-results/
 allure-report/
+coverage.xml
 
 # OS
 .DS_Store

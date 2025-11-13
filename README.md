@@ -1,5 +1,7 @@
 # YouTube Updater Telegram Bot
 
+[![CI](https://github.com/ivanostanin/youtube-updater-tg-bot/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/ivanostanin/youtube-updater-tg-bot/actions/workflows/test.yml)
+
 A Telegram bot that monitors YouTube channels and sends notifications when new videos are uploaded.
 
 ## Features
@@ -74,6 +76,19 @@ When users subscribe to channels, the bot:
 2. Stores subscription in database
 3. Registers for webhook notifications from YouTube
 4. Sends notifications to users when new videos are uploaded
+
+## Test GitHub Actions Locally
+
+Use [act](https://github.com/nektos/act) to dry-run the `CI` workflow without pushing commits.
+
+1. Install prerequisites: Docker (running daemon) and the `act` CLI (`brew install act` on macOS or download from the releases page).
+2. Ensure the provided `.actrc` is available so `ubuntu-latest` steps run inside the `catthehacker/ubuntu:full-latest` image (matches GitHub's runner environment).
+3. Execute the workflow:
+   ```bash
+   # Simulate the pull_request trigger and run the tests job
+   act pull_request -W .github/workflows/test.yml -j tests
+   ```
+   Use `-s VAR=value` or create an `.secrets` file if your workflow relies on secrets.
 
 ## Contributing
 
