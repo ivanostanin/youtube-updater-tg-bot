@@ -1,4 +1,5 @@
 import logging
+from urllib.parse import urlparse
 
 import httpx
 
@@ -13,10 +14,30 @@ class PubSubManager:
         self.webhook_url = webhook_url
         self.hub_url = "https://pubsubhubbub.appspot.com/subscribe"
         self.client = httpx.AsyncClient()
+        self._local_callback = self._is_local_callback()
 
     async def close(self) -> None:
         """Close HTTP client."""
         await self.client.aclose()
+
+    def _is_local_callback(self) -> bool:
+        """Return True when webhook callback points to localhost/loopback."""
+        parsed = urlparse(self.webhook_url)
+        hostname = parsed.hostname or ""
+        return hostname in {"localhost", "127.0.0.1", "0.0.0.0"} or hostname.startswith("127.")
+
+    def _short_circuit(self, action: str, channel_id: str) -> bool:
+        """Skip remote hub calls for local callbacks to avoid noisy failures."""
+        if not self._local_callback:
+            return False
+
+        logger.info(
+            "Skipping PubSub %s for channel %s because callback %s is local-only.",
+            action,
+            channel_id,
+            self.webhook_url,
+        )
+        return True
 
     def get_topic_url(self, channel_id: str) -> str:
         """Get the topic URL for a YouTube channel."""
@@ -25,6 +46,9 @@ class PubSubManager:
     async def subscribe_to_channel(self, channel_id: str) -> bool:
         """Subscribe to YouTube channel updates via PubSubHubbub."""
         try:
+            if self._short_circuit("subscribe", channel_id):
+                return True
+
             topic_url = self.get_topic_url(channel_id)
 
             data = {
@@ -70,6 +94,9 @@ class PubSubManager:
     async def unsubscribe_from_channel(self, channel_id: str) -> bool:
         """Unsubscribe from YouTube channel updates."""
         try:
+            if self._short_circuit("unsubscribe", channel_id):
+                return True
+
             topic_url = self.get_topic_url(channel_id)
 
             data = {
@@ -91,6 +118,12 @@ class PubSubManager:
                 return True
             elif response.status_code == 404:
                 logger.info(f"Channel {channel_id} subscription not found - treating as success")
+                return True
+            elif response.status_code == 409:
+                logger.info(
+                    "Channel %s unsubscription could not be verified (HTTP 409) - treating as success",
+                    channel_id,
+                )
                 return True
             else:
                 logger.error(

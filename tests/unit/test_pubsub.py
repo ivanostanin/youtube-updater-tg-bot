@@ -189,6 +189,21 @@ async def test_subscribe_to_channel_generic_exception():
 
 @allure.feature("Webhooks")
 @allure.story("PubSubHubbub")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_subscribe_short_circuits_for_local_callback():
+    """Local callbacks should skip remote PubSub calls."""
+    manager = PubSubManager("http://localhost:8000/webhook")
+    manager.client.post = AsyncMock()
+
+    result = await manager.subscribe_to_channel("UCtest123")
+
+    assert result is True
+    manager.client.post.assert_not_called()
+
+
+@allure.feature("Webhooks")
+@allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
 async def test_unsubscribe_from_channel_success():
@@ -256,6 +271,37 @@ async def test_unsubscribe_from_channel_failure():
     result = await manager.unsubscribe_from_channel("UCtest123")
 
     assert result is False
+
+
+@allure.feature("Webhooks")
+@allure.story("PubSubHubbub")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_unsubscribe_short_circuits_for_local_callback():
+    """Local callbacks should skip remote unsubscribe calls."""
+    manager = PubSubManager("http://127.0.0.1:9000/webhook")
+    manager.client.post = AsyncMock()
+
+    result = await manager.unsubscribe_from_channel("UCtest123")
+
+    assert result is True
+    manager.client.post.assert_not_called()
+
+
+@allure.feature("Webhooks")
+@allure.story("PubSubHubbub")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_unsubscribe_conflict_treated_as_success():
+    """HTTP 409 conflicts are treated as success to avoid noisy failures."""
+    manager = PubSubManager("https://example.com/webhook")
+    mock_response = MagicMock()
+    mock_response.status_code = 409
+    manager.client.post = AsyncMock(return_value=mock_response)
+
+    result = await manager.unsubscribe_from_channel("UCtest123")
+
+    assert result is True
 
 
 @allure.feature("Webhooks")
