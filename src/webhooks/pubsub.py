@@ -9,12 +9,12 @@ logger = logging.getLogger(__name__)
 class PubSubManager:
     """Manager for YouTube PubSubHubbub subscriptions."""
 
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: str) -> None:
         self.webhook_url = webhook_url
         self.hub_url = "https://pubsubhubbub.appspot.com/subscribe"
         self.client = httpx.AsyncClient()
 
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP client."""
         await self.client.aclose()
 

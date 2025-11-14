@@ -6,7 +6,7 @@ import hashlib
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .config import ObjectStorageConfig
 from .exceptions import (
@@ -34,11 +34,11 @@ def _list_backups(client: Any, bucket: str, prefix: str) -> list[dict[str, Any]]
         kwargs["Prefix"] = prefix
 
     response = client.list_objects_v2(**kwargs)
-    objects = response.get("Contents", [])
+    objects = cast(list[dict[str, Any]], response.get("Contents", []) or [])
     while response.get("IsTruncated"):
         kwargs["ContinuationToken"] = response.get("NextContinuationToken")
         response = client.list_objects_v2(**kwargs)
-        objects.extend(response.get("Contents", []))
+        objects.extend(cast(list[dict[str, Any]], response.get("Contents", []) or []))
     return objects
 
 

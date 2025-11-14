@@ -91,7 +91,6 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
-    "E712",   # Avoid equality comparisons to `True`
     "TID252", # relative imports
 ]
 

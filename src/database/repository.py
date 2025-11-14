@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 
 from sqlalchemy import select
@@ -12,7 +14,11 @@ class UserRepository:
         self.session = session
 
     async def get_or_create_user(
-        self, telegram_id: str, username: str = None, first_name: str = None, last_name: str = None
+        self,
+        telegram_id: str,
+        username: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
     ) -> User:
         """Get existing user or create new one."""
         result = await self.session.execute(select(User).where(User.telegram_id == telegram_id))
@@ -42,7 +48,11 @@ class ChannelRepository:
         self.session = session
 
     async def get_or_create_channel(
-        self, channel_id: str, channel_name: str, channel_url: str, feed_url: str = None
+        self,
+        channel_id: str,
+        channel_name: str,
+        channel_url: str,
+        feed_url: str | None = None,
     ) -> YouTubeChannel:
         """Get existing channel or create new one."""
         result = await self.session.execute(
@@ -78,9 +88,9 @@ class ChannelRepository:
     async def get_all_active_channels(self) -> list[YouTubeChannel]:
         """Get all active channels."""
         result = await self.session.execute(
-            select(YouTubeChannel).where(YouTubeChannel.is_active == True)
+            select(YouTubeChannel).where(YouTubeChannel.is_active)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
 
 class SubscriptionRepository:
@@ -100,10 +110,10 @@ class SubscriptionRepository:
         result = await self.session.execute(
             select(Subscription)
             .where(Subscription.user_id == user_id)
-            .where(Subscription.is_active == True)
+            .where(Subscription.is_active)
             .options(selectinload(Subscription.channel))
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def get_subscription(self, user_id: int, channel_id: int) -> Subscription | None:
         """Get specific subscription."""
@@ -111,7 +121,7 @@ class SubscriptionRepository:
             select(Subscription)
             .where(Subscription.user_id == user_id)
             .where(Subscription.channel_id == channel_id)
-            .where(Subscription.is_active == True)
+            .where(Subscription.is_active)
         )
         return result.scalar_one_or_none()
 
@@ -129,11 +139,11 @@ class SubscriptionRepository:
         result = await self.session.execute(
             select(Subscription)
             .where(Subscription.channel_id == channel_id)
-            .where(Subscription.is_active == True)
-            .where(Subscription.notification_enabled == True)
+            .where(Subscription.is_active)
+            .where(Subscription.notification_enabled)
             .options(selectinload(Subscription.user))
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
 
 class VideoRepository:
@@ -148,7 +158,7 @@ class VideoRepository:
         description: str,
         url: str,
         published_at: datetime,
-        thumbnail_url: str = None,
+        thumbnail_url: str | None = None,
     ) -> Video:
         """Create new video."""
         video = Video(
@@ -178,7 +188,7 @@ class VideoRepository:
             .order_by(Video.published_at.desc())
             .limit(limit)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())
 
 
 class NotificationRepository:
@@ -186,7 +196,7 @@ class NotificationRepository:
         self.session = session
 
     async def create_notification(
-        self, user_id: int, video_id: int, message_id: str = None
+        self, user_id: int, video_id: int, message_id: str | None = None
     ) -> Notification:
         """Create new notification record."""
         notification = Notification(
@@ -208,4 +218,4 @@ class NotificationRepository:
             .order_by(Notification.sent_at.desc())
             .limit(limit)
         )
-        return result.scalars().all()
+        return list(result.scalars().all())

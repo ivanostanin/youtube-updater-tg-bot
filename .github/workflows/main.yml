@@ -37,6 +37,7 @@ jobs:
 
       - name: Restore uv cache
         id: uv-cache
+        if: ${{ env.ACT == 'true' }}
         uses: actions/cache@v4
         with:
           path: |
@@ -141,8 +142,8 @@ jobs:
           path: publish
 
       - name: Ensure uv cache
-        if: ${{ always() }}
-        id: uv-cache
+        if: ${{ env.ACT == 'true' && always() }}
+        id: uv-cache-save
         uses: actions/cache/save@v4
         with:
           path: |
@@ -150,7 +151,7 @@ jobs:
           key: uv-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
 
       - name: Ensure JDK cache
-        id: jdk-cache
+        id: jdk-cache-save
         if: ${{ env.ACT == 'true' && always() }}
         uses: actions/cache/save@v4
         with:
@@ -167,7 +168,7 @@ jobs:
       pages: write
       id-token: write
     environment:
-      name: production
+      name: allure-report
       url: https://ivanostanin.github.io/youtube-updater-tg-bot/allure-latest/
     steps:
       - name: Deploy to GitHub Pages

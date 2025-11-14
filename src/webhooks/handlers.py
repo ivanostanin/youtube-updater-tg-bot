@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 
 import feedparser
+from feedparser import FeedParserDict
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -55,7 +56,7 @@ class WebhookHandlers:
             logger.error(f"Error processing YouTube webhook: {e}")
             return Response("Error", status_code=500)
 
-    async def process_video_update(self, entry):
+    async def process_video_update(self, entry: FeedParserDict) -> None:
         """Process a single video update from the webhook."""
         try:
             # Extract video information

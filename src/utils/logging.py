@@ -9,12 +9,12 @@ from .config import settings
 class UnbufferedStreamHandler(logging.StreamHandler):
     """Stream handler that forces immediate flushing."""
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
         self.flush()
 
 
-def setup_logging():
+def setup_logging() -> logging.Logger:
     """Configure logging for the application."""
     log_level = getattr(logging, settings.log_level.upper(), logging.INFO)
 

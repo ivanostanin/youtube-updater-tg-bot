@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 class YouTubeAPI:
     """YouTube API client for fetching channel and video information."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.api_key = settings.youtube_api_key
         self.base_url = "https://www.googleapis.com/youtube/v3"
         self.client = httpx.AsyncClient()
 
-    async def close(self):
+    async def close(self) -> None:
         """Close HTTP client."""
         await self.client.aclose()
 

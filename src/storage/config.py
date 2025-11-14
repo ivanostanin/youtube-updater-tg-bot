@@ -57,10 +57,10 @@ class ObjectStorageConfig:
             return f"{self.namespace}/{self.bucket}"
         return self.bucket
 
-    def create_client(self):
+    def create_client(self) -> Any:
         """Create a boto3 S3 client for the configuration."""
         try:
-            import boto3
+            import boto3  # type: ignore[import-untyped]
         except ModuleNotFoundError as exc:  # pragma: no cover - defensive
             raise StorageConfigurationError("boto3 is required for storage operations") from exc
 
@@ -187,16 +187,18 @@ def build_storage_config(
     else:
         profile = os.getenv("AWS_PROFILE") or os.getenv("OCI_PROFILE")
 
-    use_namespace_path = (
+    raw_use_namespace_path = (
         getattr(args, "use_namespace_path", None)
         if args and args.use_namespace_path is not None
         else _parse_bool(_env("USE_NAMESPACE_PATH"), default=False)
     )
-    verify_ssl = (
+    raw_verify_ssl = (
         getattr(args, "verify_ssl", None)
         if args and args.verify_ssl is not None
         else _parse_bool(_env("VERIFY_SSL"), default=True)
     )
+    use_namespace_path = bool(raw_use_namespace_path) if raw_use_namespace_path is not None else False
+    verify_ssl = bool(raw_verify_ssl) if raw_verify_ssl is not None else True
 
     config = ObjectStorageConfig(
         endpoint_url=endpoint,

@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import logging
 
 import uvicorn
+from starlette.applications import Starlette
 
 from .bot.bot import YouTubeUpdaterBot
 from .storage.startup import ensure_database_backup
@@ -15,11 +18,11 @@ logger = logging.getLogger(__name__)
 class Application:
     """Main application that runs both the Telegram bot and webhook server."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.bot = YouTubeUpdaterBot()
-        self.webhook_app = None
+        self.webhook_app: Starlette | None = None
 
-    async def setup(self):
+    async def setup(self) -> None:
         """Setup the application."""
         setup_logging()
         logger.info("Setting up YouTube Updater Bot application...")
@@ -28,11 +31,13 @@ class Application:
         await self.bot.initialize()
 
         # Create webhook app
+        if self.bot.notification_service is None:
+            raise RuntimeError("Notification service is not initialized")
         self.webhook_app = create_webhook_app(self.bot.notification_service)
 
         logger.info("Application setup completed")
 
-    def start_bot(self):
+    def start_bot(self) -> None:
         """Start the Telegram bot."""
         try:
             logger.info("Starting Telegram bot...")
@@ -41,12 +46,15 @@ class Application:
             logger.error(f"Error running bot: {e}")
             raise
 
-    def start_webhook_server(self):
+    def start_webhook_server(self) -> None:
         """Start the webhook server."""
         try:
             logger.info(
                 f"Starting webhook server on {settings.webhook_host}:{settings.webhook_port}"
             )
+
+            if self.webhook_app is None:
+                raise RuntimeError("Webhook application is not initialized")
 
             # Configure uvicorn to not mess with logging
             config = uvicorn.Config(
@@ -64,7 +72,7 @@ class Application:
             logger.error(f"Error starting webhook server: {e}")
             raise
 
-    def run(self):
+    def run(self) -> None:
         """Run both bot and webhook server concurrently."""
         try:
             # Setup logging first (synchronously)
@@ -102,7 +110,7 @@ class Application:
             logger.error(f"Unexpected error: {e}")
             raise
 
-    async def cleanup(self):
+    async def cleanup(self) -> None:
         """Cleanup resources."""
         try:
             logger.info("Cleaning up...")
@@ -113,7 +121,7 @@ class Application:
             logger.error(f"Error during cleanup: {e}")
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     app = Application()
     app.run()

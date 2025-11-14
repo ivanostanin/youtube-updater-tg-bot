@@ -1,6 +1,6 @@
 # YouTube Updater Telegram Bot
 
-[![CI](https://github.com/ivanostanin/youtube-updater-tg-bot/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/ivanostanin/youtube-updater-tg-bot/actions/workflows/test.yml)
+[![CI](https://github.com/ivanostanin/youtube-updater-tg-bot/actions/workflows/main.yml/badge.svg?branch=master)](https://github.com/ivanostanin/youtube-updater-tg-bot/actions/workflows/main.yml)
 
 A Telegram bot that monitors YouTube channels and sends notifications when new videos are uploaded.
 

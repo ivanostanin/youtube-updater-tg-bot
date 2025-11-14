@@ -1,7 +1,15 @@
 import logging
 
+from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from ..database.database import AsyncSessionLocal
 from ..database.repository import ChannelRepository, SubscriptionRepository, UserRepository
@@ -36,12 +44,14 @@ class BotHandlers:
                 else:
                     logger.error(f"Failed to unregister webhook for channel {channel_id}")
                 return success
+            logger.error("Unknown webhook action requested: %s", action)
+            return False
         except Exception as e:
             logger.error(f"Error managing webhook for channel {channel_id}: {e}")
             return False
 
     async def check_if_channel_has_other_subscribers(
-        self, session, channel_id: int, exclude_user_id: int = None
+        self, session: AsyncSession, channel_id: int, exclude_user_id: int | None = None
     ) -> bool:
         """Check if a channel has other active subscribers."""
         subscription_repo = SubscriptionRepository(session)
@@ -56,9 +66,14 @@ class BotHandlers:
 
         return len(active_subs) > 0
 
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            logger.warning("Received /start without required user or message context")
+            return
+
         # chat = update.effective_chat
         logger.info(f"Start command received from user {user.id} ({user.username})")
 
@@ -84,10 +99,15 @@ class BotHandlers:
             "Just send me a YouTube URL to get started!"
         )
 
-        await update.message.reply_text(welcome_text)
+        await message.reply_text(welcome_text)
 
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command."""
+        message = update.message
+        if message is None:
+            logger.warning("Received /help without message context")
+            return
+
         help_text = (
             "🎬 YouTube Updater Bot Commands:\n\n"
             "/start - Start the bot\n"
@@ -103,12 +123,17 @@ class BotHandlers:
             "• Playlist: youtube.com/playlist?list=PLAYLIST_ID"
         )
 
-        await update.message.reply_text(help_text)
+        await message.reply_text(help_text)
 
-    async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe command."""
+        message = update.message
+        if message is None:
+            logger.warning("Received /subscribe without message context")
+            return
+
         if not context.args:
-            await update.message.reply_text(
+            await message.reply_text(
                 "Please provide a YouTube URL.\n"
                 "Example: /subscribe https://youtube.com/@channelname"
             )
@@ -117,9 +142,13 @@ class BotHandlers:
         url = context.args[0]
         await self.handle_youtube_url(update, context, url)
 
-    async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list command."""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            logger.warning("Received /list without required context")
+            return
 
         async with AsyncSessionLocal() as session:
             user_repo = UserRepository(session)
@@ -127,13 +156,13 @@ class BotHandlers:
 
             db_user = await user_repo.get_user_by_telegram_id(str(user.id))
             if not db_user:
-                await update.message.reply_text("You don't have any subscriptions yet.")
+                await message.reply_text("You don't have any subscriptions yet.")
                 return
 
             subscriptions = await subscription_repo.get_user_subscriptions(db_user.id)
 
             if not subscriptions:
-                await update.message.reply_text("You don't have any active subscriptions.")
+                await message.reply_text("You don't have any active subscriptions.")
                 return
 
             text = "📋 Your subscriptions:\n\n"
@@ -141,11 +170,15 @@ class BotHandlers:
                 text += f"• {sub.channel.channel_name}\n"
                 text += f"  {sub.channel.channel_url}\n\n"
 
-            await update.message.reply_text(text)
+            await message.reply_text(text)
 
-    async def unsubscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def unsubscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /unsubscribe command."""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            logger.warning("Received /unsubscribe without required context")
+            return
 
         async with AsyncSessionLocal() as session:
             user_repo = UserRepository(session)
@@ -153,13 +186,13 @@ class BotHandlers:
 
             db_user = await user_repo.get_user_by_telegram_id(str(user.id))
             if not db_user:
-                await update.message.reply_text("You don't have any subscriptions to remove.")
+                await message.reply_text("You don't have any subscriptions to remove.")
                 return
 
             subscriptions = await subscription_repo.get_user_subscriptions(db_user.id)
 
             if not subscriptions:
-                await update.message.reply_text("You don't have any active subscriptions.")
+                await message.reply_text("You don't have any active subscriptions.")
                 return
 
             # Create inline keyboard with subscription options
@@ -177,22 +210,38 @@ class BotHandlers:
             keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
+            await message.reply_text(
                 "Select a subscription to remove:", reply_markup=reply_markup
             )
 
-    async def handle_unsubscribe_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_unsubscribe_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
         """Handle unsubscribe callback queries."""
         query = update.callback_query
+        if query is None:
+            logger.warning("Received unsubscribe callback without query")
+            return
+
         await query.answer()
 
-        if query.data == "cancel":
+        data = query.data
+        if data is None:
+            logger.warning("Callback query missing data")
+            await query.edit_message_text("Unable to process your request (missing data).")
+            return
+
+        if data == "cancel":
             await query.edit_message_text("Cancelled.")
             return
 
-        if query.data.startswith("unsub_"):
-            channel_id = int(query.data.split("_")[1])
+        if data.startswith("unsub_"):
+            channel_id = int(data.split("_")[1])
             user = update.effective_user
+            if user is None:
+                logger.warning("Unsubscribe callback missing user context")
+                await query.edit_message_text("Unable to identify user for unsubscribe action.")
+                return
 
             async with AsyncSessionLocal() as session:
                 user_repo = UserRepository(session)
@@ -232,12 +281,16 @@ class BotHandlers:
 
     async def handle_youtube_url(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str
-    ):
+    ) -> None:
         """Handle YouTube URL processing."""
         user = update.effective_user
+        message = update.message
+        if user is None or message is None:
+            logger.warning("handle_youtube_url missing user or message context")
+            return
 
         # Send processing message
-        processing_msg = await update.message.reply_text("🔍 Processing YouTube URL...")
+        processing_msg = await message.reply_text("🔍 Processing YouTube URL...")
 
         try:
             # Resolve the URL
@@ -383,10 +436,15 @@ class BotHandlers:
                 "❌ An error occurred while processing the URL. Please try again later."
             )
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle text messages (looking for YouTube URLs)."""
-        text = update.message.text
+        message = update.message
         user = update.effective_user
+        if message is None or user is None:
+            logger.warning("Received message update without required context")
+            return
+
+        text = message.text or ""
 
         logger.info(f"Message received from user {user.id} ({user.username})")
         logger.debug(f"Message content: {text}")
@@ -397,7 +455,7 @@ class BotHandlers:
             "youtu.be",
         ]
 
-        if any(pattern in text.lower() for pattern in youtube_patterns):
+        if any(pattern in text.lower() for pattern in youtube_patterns) and text:
             # Extract URL from the text
             words = text.split()
             youtube_url = None
@@ -410,17 +468,17 @@ class BotHandlers:
             if youtube_url:
                 await self.handle_youtube_url(update, context, youtube_url)
             else:
-                await update.message.reply_text(
+                await message.reply_text(
                     "I found a YouTube link in your message, but couldn't extract the URL. Please send just the URL."
                 )
         else:
-            await update.message.reply_text(
+            await message.reply_text(
                 "Send me a YouTube URL to subscribe to a channel!\n"
                 "Or use /help to see available commands."
             )
 
 
-def setup_handlers(application, youtube_api: YouTubeAPI):
+def setup_handlers(application: Application, youtube_api: YouTubeAPI) -> BotHandlers:
     """Set up bot handlers."""
     handlers = BotHandlers(youtube_api)
     logger.info("Setting up bot handlers")
