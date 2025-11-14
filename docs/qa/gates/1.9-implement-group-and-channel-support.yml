@@ -1,62 +1,44 @@
 schema: 1
 story: "1.9"
 story_title: "Implement Group and Channel Support"
-gate: FAIL
-status_reason: "Group/channel commands never invoke ACLService, so admin-only requirements (AC2/AC4/AC5/AC6) remain unmet even though schema and tests are fixed."
+gate: PASS
+status_reason: "All group/channel acceptance criteria are satisfied; re-subscribe, admin gating, and notification flows now pass the updated pytest suite."
 reviewer: "Quinn (Test Architect)"
-updated: "2025-11-14T18:44:00Z"
+updated: "2025-11-14T21:20:59Z"
 
 waiver: { active: false }
 
-top_issues:
-  - id: "QA-AC2"
-    severity: high
-    finding: "`ACLService` is defined but never instantiated, leaving `/subscribe` (and URL handling) without any admin verification for shared chats (`src/bot/handlers.py:167-233`, `src/services/acl.py:10-86`)."
-    suggested_action: "Inject ACLService into `BotHandlers`, require admin checks before processing group/channel subscriptions, and add tests covering unauthorized callers."
-  - id: "QA-AC5"
-    severity: high
-    finding: "`/list`, `/unsubscribe`, and the callback handler operate directly on repositories without permission checks, so any group member can enumerate or delete shared subscriptions (`src/bot/handlers.py:193-315`)."
-    suggested_action: "Gate list/unsubscribe flows with ACLService and add regression tests proving non-admin attempts are rejected."
+top_issues: []
 
 risk_summary:
-  totals: { critical: 0, high: 2, medium: 0, low: 0 }
+  totals: { critical: 0, high: 0, medium: 0, low: 0 }
   recommendations:
-    must_fix:
-      - "Wire ACLService into all group/channel command paths so only admins can mutate subscriptions."
-      - "Cover the admin-only requirement with positive/negative tests for subscribe, list, and unsubscribe."
+    must_fix: []
     monitor: []
 
-quality_score: 6
+quality_score: 9
 
 evidence:
-  tests_reviewed: 3
-  risks_identified: 2
+  tests_reviewed: 8
+  risks_identified: 0
   trace:
-    ac_covered: [1, 3, 7, 8, 9, 10, 11, 12]
-    ac_gaps: [2, 4, 5, 6]
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    ac_gaps: []
 
 nfr_validation:
   security:
-    status: FAIL
-    notes: "Lack of ACL enforcement lets any group member add/remove subscriptions, violating the admin-only requirement."
+    status: PASS
+    notes: "ACL enforcement blocks non-admins before mutating shared-chat state (`src/bot/handlers.py:118-166`)."
   performance:
     status: PASS
-    notes: "No performance regressions observed during review."
+    notes: "Webhook delivery still iterates the subscriber list once per video without extra fan-out (`src/webhooks/handlers.py:64-151`)."
   reliability:
     status: PASS
-    notes: "Full pytest suite passes under Python 3.13."
+    notes: "Soft-deleted subscriptions reactivate and group noise is suppressed, preventing operational regressions (`src/database/repository.py:156-199`, `src/bot/handlers.py:595-633`)."
   maintainability:
     status: PASS
-    notes: "Code structure is clean; the main gap is missing integration of the existing ACL service."
+    notes: "Unit + integration tests exercise admin gating, resubscribe, and shared-chat message handling (`tests/integration/test_bot_flow.py:21-188`, `tests/unit/test_handlers.py:136-633`)."
 
 recommendations:
-  immediate:
-    - action: "Instantiate `ACLService` with the Telegram bot and require it in `/subscribe` and URL ingestion flows."
-      refs:
-        - "src/bot/handlers.py:58-189"
-        - "src/services/acl.py:10-86"
-    - action: "Enforce admin checks for `/list`, `/unsubscribe`, and callback handlers, plus add regression tests for unauthorized members."
-      refs:
-        - "src/bot/handlers.py:193-315"
-        - "tests/unit/test_acl_service.py:1-110"
+  immediate: []
   future: []

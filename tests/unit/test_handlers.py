@@ -225,6 +225,55 @@ async def test_list_command_with_subscriptions(
 
 
 @allure.feature("Bot Handlers")
+@allure.story("List Command")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_list_command_creates_user_for_group_admin(
+    mock_telegram_update, mock_telegram_context, mock_youtube_api, async_db_session
+):
+    """Group admins without prior DM history should still be able to list subscriptions."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    handlers.acl_service.require_admin = AsyncMock(return_value=True)
+
+    mock_telegram_update.effective_chat.type = "supergroup"
+    mock_telegram_update.message.chat.type = "supergroup"
+    mock_telegram_update.effective_chat.username = "testgroup"
+    mock_telegram_update.message.chat.username = "testgroup"
+
+    chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type=mock_telegram_update.effective_chat.type,
+        title="Test Group",
+    )
+    async_db_session.add(chat)
+    await async_db_session.flush()
+
+    channel = YouTubeChannel(
+        channel_id="UCtest123",
+        channel_name="Test Channel",
+        channel_url="https://youtube.com/channel/UCtest123",
+        feed_url="https://youtube.com/feeds/videos.xml?channel_id=UCtest123",
+    )
+    async_db_session.add(channel)
+    await async_db_session.flush()
+
+    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
+    async_db_session.add(subscription)
+    await async_db_session.commit()
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.list_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_called_once()
+    call_args = mock_telegram_update.message.reply_text.call_args[0][0]
+    assert "Test Channel" in call_args
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_user_by_telegram_id("123456789")
+    assert db_user is not None
+
+
+@allure.feature("Bot Handlers")
 @allure.story("Unsubscribe Command")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
@@ -561,6 +610,26 @@ async def test_handle_message_without_youtube_url(
     mock_telegram_update.message.reply_text.assert_called_once()
     call_args = mock_telegram_update.message.reply_text.call_args[0][0]
     assert "Send me a YouTube URL" in call_args
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Message Handler")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_handle_message_ignores_non_youtube_group_text(
+    mock_telegram_update, mock_telegram_context, mock_youtube_api
+):
+    """Ensure the bot does not spam group chats for non-YouTube messages."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+
+    mock_telegram_update.effective_chat.type = "supergroup"
+    mock_telegram_update.message.chat.type = "supergroup"
+    mock_telegram_update.message.text = "Just chatting here."
+    mock_telegram_update.message.reply_text.reset_mock()
+
+    await handlers.handle_message(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_not_called()
 
 
 @allure.feature("Bot Handlers")

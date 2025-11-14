@@ -41,6 +41,7 @@ WORKDIR /app
 # Copy source code
 COPY src/ ./src/
 COPY README.md ./
+COPY alembic.ini ./
 
 # Create non-root user
 RUN groupadd --gid 1000 appuser \

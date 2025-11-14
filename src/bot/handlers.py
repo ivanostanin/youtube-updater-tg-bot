@@ -250,14 +250,18 @@ class BotHandlers:
         telegram_user: TelegramUser,
         telegram_chat: TelegramChat,
     ) -> tuple[User | None, DBChat | None]:
+        """Ensure both the acting user and chat exist in the database."""
         user_repo = UserRepository(session)
-        db_user = await user_repo.get_user_by_telegram_id(str(telegram_user.id))
-        if db_user is None:
-            return None, None
+        db_user = await user_repo.get_or_create_user(
+            telegram_id=str(telegram_user.id),
+            username=getattr(telegram_user, "username", None),
+            first_name=getattr(telegram_user, "first_name", None),
+            last_name=getattr(telegram_user, "last_name", None),
+        )
         chat = await self._ensure_chat_record(
             session,
             telegram_chat=telegram_chat,
-            db_user_id=db_user.id,
+            db_user_id=db_user.id if db_user else None,
         )
         return db_user, chat
 
@@ -279,26 +283,27 @@ class BotHandlers:
 
         async with AsyncSessionLocal() as session:
             subscription_repo = SubscriptionRepository(session)
-            db_user, chat = await self._get_chat_and_user(
+            _db_user, chat = await self._get_chat_and_user(
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
             )
-            if db_user is None or chat is None:
+            if chat is None:
                 await message.reply_text("You don't have any subscriptions yet.")
                 return
 
             subscriptions = await subscription_repo.get_chat_subscriptions(chat.id)
-            if not subscriptions:
-                await message.reply_text("You don't have any active subscriptions.")
-                return
 
-            text = "📋 Your subscriptions:\n\n"
-            for sub in subscriptions:
-                text += f"• {sub.channel.channel_name}\n"
-                text += f"  {sub.channel.channel_url}\n\n"
+        if not subscriptions:
+            await message.reply_text("You don't have any active subscriptions.")
+            return
 
-            await message.reply_text(text)
+        text = "📋 Your subscriptions:\n\n"
+        for sub in subscriptions:
+            text += f"• {sub.channel.channel_name}\n"
+            text += f"  {sub.channel.channel_url}\n\n"
+
+        await message.reply_text(text)
 
     async def unsubscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /unsubscribe command."""
@@ -318,35 +323,34 @@ class BotHandlers:
 
         async with AsyncSessionLocal() as session:
             subscription_repo = SubscriptionRepository(session)
-            db_user, chat = await self._get_chat_and_user(
+            _db_user, chat = await self._get_chat_and_user(
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
             )
-            if db_user is None or chat is None:
+            if chat is None:
                 await message.reply_text("You don't have any subscriptions to remove.")
                 return
 
             subscriptions = await subscription_repo.get_chat_subscriptions(chat.id)
-            if not subscriptions:
-                await message.reply_text("You don't have any active subscriptions.")
-                return
 
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        text=f"❌ {sub.channel.channel_name}",
-                        callback_data=f"unsub_{sub.channel.id}",
-                    )
-                ]
-                for sub in subscriptions
+        if not subscriptions:
+            await message.reply_text("You don't have any active subscriptions.")
+            return
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    text=f"❌ {sub.channel.channel_name}",
+                    callback_data=f"unsub_{sub.channel.id}",
+                )
             ]
-            keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
+            for sub in subscriptions
+        ]
+        keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
 
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await message.reply_text(
-                "Select a subscription to remove:", reply_markup=reply_markup
-            )
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await message.reply_text("Select a subscription to remove:", reply_markup=reply_markup)
 
     async def handle_unsubscribe_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -401,12 +405,12 @@ class BotHandlers:
             subscription_repo = SubscriptionRepository(session)
             channel_repo = ChannelRepository(session)
 
-            db_user, chat = await self._get_chat_and_user(
+            _db_user, chat = await self._get_chat_and_user(
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
             )
-            if db_user is None or chat is None:
+            if chat is None:
                 await query.edit_message_text("You do not have subscriptions in this chat.")
                 return
 
@@ -592,11 +596,14 @@ class BotHandlers:
         """Handle text messages (looking for YouTube URLs)."""
         message = update.message
         user = update.effective_user
-        if message is None or user is None:
+        telegram_chat = update.effective_chat
+        if message is None or user is None or telegram_chat is None:
             logger.warning("Received message update without required context")
             return
 
         text = message.text or ""
+        chat_type = getattr(telegram_chat, "type", "private")
+        is_private_chat = chat_type == "private"
 
         youtube_patterns = [
             "youtube.com",
@@ -614,11 +621,11 @@ class BotHandlers:
 
             if youtube_url:
                 await self.handle_youtube_url(update, context, youtube_url)
-            else:
+            elif is_private_chat:
                 await message.reply_text(
                     "I found a YouTube link in your message, but couldn't extract the URL. Please send just the URL."
                 )
-        else:
+        elif is_private_chat:
             await message.reply_text(
                 "Send me a YouTube URL to subscribe to a channel!\n"
                 "Or use /help to see available commands."
