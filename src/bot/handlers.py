@@ -1,6 +1,11 @@
 import logging
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from telegram import (
+    Bot as TelegramBot,
+)
 from telegram import (
     Chat as TelegramChat,
 )
@@ -30,6 +35,7 @@ from ..database.repository import (
     SubscriptionRepository,
     UserRepository,
 )
+from ..services import ACLService
 from ..utils.config import settings
 from ..webhooks.pubsub import PubSubManager
 from ..youtube.api import YouTubeAPI
@@ -39,10 +45,16 @@ logger = logging.getLogger(__name__)
 
 
 class BotHandlers:
-    def __init__(self, youtube_api: YouTubeAPI, bot: object | None = None):
+    def __init__(
+        self,
+        youtube_api: YouTubeAPI,
+        bot: TelegramBot | None = None,
+        acl_service: ACLService | None = None,
+    ):
         self.youtube_api = youtube_api
         self.bot = bot
         self.webhook_manager = PubSubManager(webhook_url=settings.webhook_callback_url)
+        self.acl_service = acl_service or (ACLService(bot) if bot is not None else None)
 
     async def manage_channel_webhook(self, channel_id: str, action: str = "subscribe") -> bool:
         """Manage webhook subscription for a YouTube channel."""
@@ -101,6 +113,56 @@ class BotHandlers:
             chat_type=chat_type,
             title=chat_title,
             user_id=user_id,
+        )
+
+    async def _require_admin(
+        self,
+        *,
+        telegram_chat: TelegramChat | None,
+        telegram_user: TelegramUser | None,
+        on_denied: Callable[[str], Awaitable[object]],
+    ) -> bool:
+        """Verify admin permissions for shared chat contexts."""
+        if telegram_chat is None:
+            await on_denied("I couldn't identify which chat triggered this command.")
+            logger.warning("Missing chat context while enforcing admin requirement.")
+            return False
+
+        chat_type = getattr(telegram_chat, "type", "private") or "private"
+        if not ACLService.is_group_context(chat_type):
+            return True
+
+        if self.acl_service is None:
+            await on_denied(
+                "I can't verify admin permissions for this chat right now. Please try again later."
+            )
+            logger.error("ACL service unavailable; denying group command execution.")
+            return False
+
+        chat_identifier: Any = getattr(telegram_chat, "id", None)
+        if chat_identifier is None:
+            await on_denied("I couldn't identify the target chat for this action.")
+            logger.warning("Admin check aborted: chat id missing.")
+            return False
+        if isinstance(chat_identifier, (int, str)):
+            chat_id: int | str = chat_identifier
+        else:
+            chat_id = str(chat_identifier)
+
+        user_identifier: Any = getattr(telegram_user, "id", None) if telegram_user else None
+        if isinstance(user_identifier, (int, str)) or user_identifier is None:
+            user_id: int | str | None = user_identifier
+        else:
+            user_id = str(user_identifier)
+
+        async def forward_denial(text: str) -> None:
+            await on_denied(text)
+
+        return await self.acl_service.require_admin(
+            chat_id=chat_id,
+            chat_type=chat_type,
+            user_id=user_id,
+            on_denied=forward_denial,
         )
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -208,6 +270,13 @@ class BotHandlers:
             logger.warning("Received /list without required context")
             return
 
+        if not await self._require_admin(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+            on_denied=message.reply_text,
+        ):
+            return
+
         async with AsyncSessionLocal() as session:
             subscription_repo = SubscriptionRepository(session)
             db_user, chat = await self._get_chat_and_user(
@@ -238,6 +307,13 @@ class BotHandlers:
         telegram_chat = update.effective_chat
         if user is None or message is None or telegram_chat is None:
             logger.warning("Received /unsubscribe without required context")
+            return
+
+        if not await self._require_admin(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+            on_denied=message.reply_text,
+        ):
             return
 
         async with AsyncSessionLocal() as session:
@@ -281,19 +357,20 @@ class BotHandlers:
             logger.warning("Received unsubscribe callback without query")
             return
 
-        await query.answer()
-
         data = query.data
         if data is None:
+            await query.answer("Unable to process your request (missing data).", show_alert=True)
             logger.warning("Callback query missing data")
             await query.edit_message_text("Unable to process your request (missing data).")
             return
 
         if data == "cancel":
+            await query.answer()
             await query.edit_message_text("Cancelled.")
             return
 
         if not data.startswith("unsub_"):
+            await query.answer("Unknown action.", show_alert=True)
             await query.edit_message_text("Unknown action.")
             return
 
@@ -304,8 +381,21 @@ class BotHandlers:
             telegram_chat = query.message.chat
         if user is None or telegram_chat is None:
             logger.warning("Unsubscribe callback missing user or chat context")
+            await query.answer("Unable to identify user or chat for this action.", show_alert=True)
             await query.edit_message_text("Unable to identify user or chat for this action.")
             return
+
+        async def deny(text: str) -> None:
+            await query.answer(text, show_alert=True)
+
+        if not await self._require_admin(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+            on_denied=deny,
+        ):
+            return
+
+        await query.answer()
 
         async with AsyncSessionLocal() as session:
             subscription_repo = SubscriptionRepository(session)
@@ -351,10 +441,17 @@ class BotHandlers:
     ) -> None:
         """Handle YouTube URL processing."""
         user = update.effective_user
-        message = update.message
+        message = update.message or update.effective_message
         telegram_chat = update.effective_chat
         if user is None or message is None or telegram_chat is None:
-            logger.warning("handle_youtube_url missing user or message context")
+            logger.warning("handle_youtube_url missing required context")
+            return
+
+        if not await self._require_admin(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+            on_denied=message.reply_text,
+        ):
             return
 
         processing_msg = await message.reply_text("🔍 Processing YouTube URL...")
@@ -530,7 +627,7 @@ class BotHandlers:
 
 def setup_handlers(application: Application, youtube_api: YouTubeAPI) -> BotHandlers:
     """Set up bot handlers."""
-    handlers = BotHandlers(youtube_api)
+    handlers = BotHandlers(youtube_api, application.bot)
     logger.info("Setting up bot handlers")
 
     application.add_handler(CommandHandler("start", handlers.start_command))

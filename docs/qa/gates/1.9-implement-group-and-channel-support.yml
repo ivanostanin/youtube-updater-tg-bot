@@ -2,61 +2,61 @@ schema: 1
 story: "1.9"
 story_title: "Implement Group and Channel Support"
 gate: FAIL
-status_reason: "Alembic still applies the legacy (chat_id, channel_id) uniqueness and the integration suite keeps using user IDs, so AC4 and AC12 fail."
+status_reason: "Group/channel commands never invoke ACLService, so admin-only requirements (AC2/AC4/AC5/AC6) remain unmet even though schema and tests are fixed."
 reviewer: "Quinn (Test Architect)"
-updated: "2025-11-26T10:15:00Z"
+updated: "2025-11-14T18:44:00Z"
 
 waiver: { active: false }
 
 top_issues:
-  - id: "QA-AC12"
+  - id: "QA-AC2"
     severity: high
-    finding: "Integration flow still calls create_subscription/chat notifications with user IDs (`tests/integration/test_bot_flow.py:162`, `tests/integration/test_bot_flow.py:173`), so the new chat schema isn’t exercised and tests crash."
-    suggested_action: "Refactor integration fixtures/tests to create chats and use chat IDs end-to-end, then rerun pytest."
-  - id: "DATA-AC4"
+    finding: "`ACLService` is defined but never instantiated, leaving `/subscribe` (and URL handling) without any admin verification for shared chats (`src/bot/handlers.py:167-233`, `src/services/acl.py:10-86`)."
+    suggested_action: "Inject ACLService into `BotHandlers`, require admin checks before processing group/channel subscriptions, and add tests covering unauthorized callers."
+  - id: "QA-AC5"
     severity: high
-    finding: "Alembic still recreates `uq_subscriptions_chat_channel` on (chat_id, channel_id) (`src/database/migrations/versions/20241202_implement_chat_support.py:174`), so soft-deleted records block re-subscribing."
-    suggested_action: "Align the constraint with the model (include is_active) or re-use inactive rows before inserting; cover with a re-subscribe regression test."
+    finding: "`/list`, `/unsubscribe`, and the callback handler operate directly on repositories without permission checks, so any group member can enumerate or delete shared subscriptions (`src/bot/handlers.py:193-315`)."
+    suggested_action: "Gate list/unsubscribe flows with ACLService and add regression tests proving non-admin attempts are rejected."
 
 risk_summary:
   totals: { critical: 0, high: 2, medium: 0, low: 0 }
   recommendations:
     must_fix:
-      - "Repair test suite for chat-based schema and ensure pytest passes."
-      - "Resolve subscription uniqueness bug so chats can re-subscribe after opting out."
+      - "Wire ACLService into all group/channel command paths so only admins can mutate subscriptions."
+      - "Cover the admin-only requirement with positive/negative tests for subscribe, list, and unsubscribe."
     monitor: []
 
-quality_score: 5
+quality_score: 6
 
 evidence:
   tests_reviewed: 3
   risks_identified: 2
   trace:
-    ac_covered: [1, 2, 3, 5, 6, 7, 8, 9, 10, 11]
-    ac_gaps: [4, 12]
+    ac_covered: [1, 3, 7, 8, 9, 10, 11, 12]
+    ac_gaps: [2, 4, 5, 6]
 
 nfr_validation:
   security:
-    status: PASS
-    notes: "ACLService enforces admin-only operations for shared chats."
-  performance:
-    status: CONCERNS
-    notes: "No performance regression observed, but re-subscribe failure prevents end-to-end load validation."
-  reliability:
     status: FAIL
-    notes: "Re-subscribe crashes on uniqueness conflicts, and automated tests cannot run to demonstrate stability."
+    notes: "Lack of ACL enforcement lets any group member add/remove subscriptions, violating the admin-only requirement."
+  performance:
+    status: PASS
+    notes: "No performance regressions observed during review."
+  reliability:
+    status: PASS
+    notes: "Full pytest suite passes under Python 3.13."
   maintainability:
-    status: CONCERNS
-    notes: "Code is largely refactored, but the broken test suite and missing re-subscribe path raise ongoing maintenance risk."
+    status: PASS
+    notes: "Code structure is clean; the main gap is missing integration of the existing ACL service."
 
 recommendations:
   immediate:
-    - action: "Update fixtures/tests to create chats and use chat IDs so the integration suite passes again."
+    - action: "Instantiate `ACLService` with the Telegram bot and require it in `/subscribe` and URL ingestion flows."
       refs:
-        - "tests/integration/test_bot_flow.py:162"
-        - "tests/integration/test_bot_flow.py:173"
-    - action: "Fix subscription reactivation so `/subscribe` succeeds after `/unsubscribe`."
+        - "src/bot/handlers.py:58-189"
+        - "src/services/acl.py:10-86"
+    - action: "Enforce admin checks for `/list`, `/unsubscribe`, and callback handlers, plus add regression tests for unauthorized members."
       refs:
-        - "src/database/migrations/versions/20241202_implement_chat_support.py:174"
-        - "src/database/repository.py:124"
+        - "src/bot/handlers.py:193-315"
+        - "tests/unit/test_acl_service.py:1-110"
   future: []

@@ -321,6 +321,33 @@ async def test_unsubscribe_command_with_subscriptions(
 
 
 @allure.feature("Bot Handlers")
+@allure.story("Access Control")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_list_command_requires_admin_in_group_chat(
+    mock_telegram_update, mock_telegram_context, mock_youtube_api
+):
+    """Group chats must pass admin verification before listing subscriptions."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_update.effective_chat.type = "supergroup"
+
+    async def fake_require_admin(**kwargs):
+        await kwargs["on_denied"]("Only chat administrators can run /list.")
+        return False
+
+    handlers.acl_service = MagicMock()
+    handlers.acl_service.require_admin = AsyncMock(side_effect=fake_require_admin)
+
+    with patch("src.bot.handlers.AsyncSessionLocal") as mock_session:
+        await handlers.list_command(mock_telegram_update, mock_telegram_context)
+
+    mock_session.assert_not_called()
+    mock_telegram_update.message.reply_text.assert_called_once_with(
+        "Only chat administrators can run /list."
+    )
+
+
+@allure.feature("Bot Handlers")
 @allure.story("Callback Queries")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
@@ -418,6 +445,42 @@ async def test_handle_unsubscribe_callback_success(
 
 
 @allure.feature("Bot Handlers")
+@allure.story("Access Control")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_handle_unsubscribe_callback_denies_non_admin(
+    mock_telegram_update, mock_telegram_context, mock_youtube_api
+):
+    """Non-admin users should be blocked from callback unsubscriptions in group chats."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_update.effective_chat.type = "supergroup"
+
+    query = MagicMock(spec=CallbackQuery)
+    query.data = "unsub_1"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.message = MagicMock()
+    query.message.chat = mock_telegram_update.effective_chat
+    mock_telegram_update.callback_query = query
+
+    async def fake_require_admin(**kwargs):
+        await kwargs["on_denied"]("Only admins can remove subscriptions.")
+        return False
+
+    handlers.acl_service = MagicMock()
+    handlers.acl_service.require_admin = AsyncMock(side_effect=fake_require_admin)
+
+    with patch("src.bot.handlers.AsyncSessionLocal") as mock_session:
+        await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
+
+    mock_session.assert_not_called()
+    query.answer.assert_awaited_once_with(
+        "Only admins can remove subscriptions.", show_alert=True
+    )
+    query.edit_message_text.assert_not_called()
+
+
+@allure.feature("Bot Handlers")
 @allure.story("Message Handler")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
@@ -442,6 +505,36 @@ async def test_handle_message_with_youtube_url(
     handlers.handle_youtube_url.assert_called_once()
     call_args = handlers.handle_youtube_url.call_args[0]
     assert "youtube.com" in call_args[2]
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Access Control")
+@allure.severity(allure.severity_level.BLOCKER)
+@pytest.mark.unit
+async def test_handle_youtube_url_denies_non_admin_group(
+    mock_telegram_update, mock_telegram_context, mock_youtube_api
+):
+    """Group members without admin rights cannot add subscriptions."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_update.effective_chat.type = "supergroup"
+    mock_telegram_update.message.reply_text = AsyncMock()
+    mock_youtube_api.resolve_url = AsyncMock()
+
+    async def fake_require_admin(**kwargs):
+        await kwargs["on_denied"]("Only admins can subscribe this chat.")
+        return False
+
+    handlers.acl_service = MagicMock()
+    handlers.acl_service.require_admin = AsyncMock(side_effect=fake_require_admin)
+
+    await handlers.handle_youtube_url(
+        mock_telegram_update, mock_telegram_context, "https://youtube.com/@demo"
+    )
+
+    mock_youtube_api.resolve_url.assert_not_called()
+    mock_telegram_update.message.reply_text.assert_called_once_with(
+        "Only admins can subscribe this chat."
+    )
 
 
 @allure.feature("Bot Handlers")
