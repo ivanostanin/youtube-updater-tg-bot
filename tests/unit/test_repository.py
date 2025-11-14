@@ -176,6 +176,38 @@ async def test_user_repository_get_by_telegram_id(async_db_session):
 
 @allure.feature("Database")
 @allure.story("Repositories")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_chat_repository_tracks_user_relationship(async_db_session):
+    """Ensure ChatRepository persists and updates user references for chats."""
+    user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
+
+    user = await user_repo.get_or_create_user(telegram_id="321", username="chat-owner")
+
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="321",
+        chat_type="private",
+        title="Owner Chat",
+        user_id=user.id,
+    )
+
+    assert chat.user_id == user.id
+
+    # Updates should overwrite the relationship when a new user is provided
+    new_user = await user_repo.get_or_create_user(telegram_id="654", username="new-owner")
+    updated = await chat_repo.get_or_create_chat(
+        chat_id="321",
+        chat_type="private",
+        title="Owner Chat",
+        user_id=new_user.id,
+    )
+
+    assert updated.user_id == new_user.id
+
+
+@allure.feature("Database")
+@allure.story("Repositories")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
 async def test_channel_repository_create_new_channel(async_db_session):
