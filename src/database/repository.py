@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from sqlalchemy import select
@@ -7,6 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from .models import Chat, Notification, Subscription, User, Video, YouTubeChannel
+
+
+logger = logging.getLogger(__name__)
 
 
 class UserRepository:
@@ -141,17 +145,48 @@ class SubscriptionRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    async def _fetch_subscription_rows(
+        self,
+        chat_id: int,
+        channel_id: int,
+        *,
+        include_inactive: bool = True,
+        limit: int | None = None,
+    ) -> list[Subscription]:
+        stmt = (
+            select(Subscription)
+            .where(Subscription.chat_id == chat_id)
+            .where(Subscription.channel_id == channel_id)
+            .order_by(Subscription.created_at.desc(), Subscription.id.desc())
+        )
+        if not include_inactive:
+            stmt = stmt.where(Subscription.is_active)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
     async def _get_subscription_record(
         self,
         chat_id: int,
         channel_id: int,
+        *,
+        include_inactive: bool = True,
     ) -> Subscription | None:
-        result = await self.session.execute(
-            select(Subscription)
-            .where(Subscription.chat_id == chat_id)
-            .where(Subscription.channel_id == channel_id)
+        subscriptions = await self._fetch_subscription_rows(
+            chat_id,
+            channel_id,
+            include_inactive=include_inactive,
+            limit=2,
         )
-        return result.scalar_one_or_none()
+        if not subscriptions:
+            return None
+        if len(subscriptions) > 1:
+            logger.warning(
+                "Duplicate subscription rows detected",
+                extra={"chat_id": chat_id, "channel_id": channel_id, "count": len(subscriptions)},
+            )
+        return subscriptions[0]
 
     async def create_subscription(self, chat_id: int, channel_id: int) -> Subscription:
         """Create or reactivate a subscription."""
@@ -184,22 +219,38 @@ class SubscriptionRepository:
 
     async def get_subscription(self, chat_id: int, channel_id: int) -> Subscription | None:
         """Get a specific active subscription."""
-        result = await self.session.execute(
-            select(Subscription)
-            .where(Subscription.chat_id == chat_id)
-            .where(Subscription.channel_id == channel_id)
-            .where(Subscription.is_active)
+        return await self._get_subscription_record(
+            chat_id,
+            channel_id,
+            include_inactive=False,
         )
-        return result.scalar_one_or_none()
 
     async def delete_subscription(self, chat_id: int, channel_id: int) -> bool:
         """Soft delete a subscription."""
-        subscription = await self._get_subscription_record(chat_id, channel_id)
-        if subscription and subscription.is_active:
-            subscription.is_active = False
+        subscriptions = await self._fetch_subscription_rows(
+            chat_id,
+            channel_id,
+            include_inactive=True,
+        )
+        if not subscriptions:
+            return False
+
+        changed = False
+        for subscription in subscriptions:
+            if subscription.is_active:
+                subscription.is_active = False
+                changed = True
+
+        if changed:
             await self.session.commit()
-            return True
-        return False
+
+        if len(subscriptions) > 1:
+            logger.warning(
+                "Soft-deleting duplicate subscription rows",
+                extra={"chat_id": chat_id, "channel_id": channel_id, "count": len(subscriptions)},
+            )
+
+        return changed
 
     async def get_channel_subscribers(self, channel_id: int) -> list[Subscription]:
         """Get all active subscribers for a channel."""

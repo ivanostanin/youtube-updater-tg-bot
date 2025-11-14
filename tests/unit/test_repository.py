@@ -446,6 +446,43 @@ async def test_subscription_repository_delete_subscription(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
+async def test_subscription_repository_handles_duplicate_rows_on_delete(async_db_session):
+    """Ensure duplicate subscription rows don't break delete flows and are fully deactivated."""
+
+    chat_repo = ChatRepository(async_db_session)
+    channel_repo = ChannelRepository(async_db_session)
+    sub_repo = SubscriptionRepository(async_db_session)
+
+    chat = await chat_repo.get_or_create_chat(chat_id="dup-chat", chat_type="private", title="Dup")
+    channel = await channel_repo.get_or_create_channel(
+        channel_id="UCdup",
+        channel_name="Duplicate Channel",
+        channel_url="https://youtube.com/channel/UCdup",
+    )
+
+    await sub_repo.create_subscription(chat.id, channel.id)
+
+    duplicate = Subscription(chat_id=chat.id, channel_id=channel.id)
+    async_db_session.add(duplicate)
+    await async_db_session.commit()
+
+    success = await sub_repo.delete_subscription(chat.id, channel.id)
+    assert success is True
+
+    result = await async_db_session.execute(
+        select(Subscription)
+        .where(Subscription.chat_id == chat.id)
+        .where(Subscription.channel_id == channel.id)
+    )
+    records = result.scalars().all()
+    assert len(records) == 2
+    assert all(record.is_active is False for record in records)
+
+
+@allure.feature("Database")
+@allure.story("Repositories")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
 async def test_subscription_repository_reactivate_subscription(async_db_session):
     """Test SubscriptionRepository reactivates existing subscriptions."""
 
