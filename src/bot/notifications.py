@@ -4,6 +4,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 from ..database.models import Video, YouTubeChannel
+from ..utils.formatters import format_group_discussion_prompt
 
 
 logger = logging.getLogger(__name__)
@@ -16,42 +17,54 @@ class NotificationService:
         self.bot = bot
 
     async def send_video_notification(
-        self, user_telegram_id: str, video: Video, channel: YouTubeChannel
+        self,
+        chat_telegram_id: str,
+        video: Video,
+        channel: YouTubeChannel,
+        *,
+        chat_title: str | None,
+        chat_type: str,
     ) -> int | None:
-        """Send a video notification to a user."""
+        """Send a video notification to a chat."""
         try:
-            # Format the notification message
-            message = self.format_video_message(video, channel)
+            message = self.format_video_message(
+                video,
+                channel,
+                chat_title=chat_title,
+                chat_type=chat_type,
+            )
 
-            # Send the message
             sent_message = await self.bot.send_message(
-                chat_id=user_telegram_id,
+                chat_id=chat_telegram_id,
                 text=message,
                 parse_mode="Markdown",
                 disable_web_page_preview=False,
             )
 
-            logger.info(f"Sent video notification to user {user_telegram_id}: {video.title}")
+            logger.info(f"Sent video notification to chat {chat_telegram_id} ({chat_type}): {video.title}")
             return sent_message.message_id
 
-        except TelegramError as e:
-            logger.error(f"Telegram error sending notification to {user_telegram_id}: {e}")
+        except TelegramError as error:
+            logger.error(f"Telegram error sending notification to chat {chat_telegram_id}: {error}")
             return None
-        except Exception as e:
-            logger.error(f"Unexpected error sending notification to {user_telegram_id}: {e}")
+        except Exception as error:
+            logger.error(f"Unexpected error sending notification to chat {chat_telegram_id}: {error}")
             return None
 
-    def format_video_message(self, video: Video, channel: YouTubeChannel) -> str:
+    def format_video_message(
+        self,
+        video: Video,
+        channel: YouTubeChannel,
+        *,
+        chat_title: str | None,
+        chat_type: str,
+    ) -> str:
         """Format a video notification message."""
-        # Truncate title if too long
-        title = video.title
-        if len(title) > 100:
-            title = title[:97] + "..."
+        title = video.title if len(video.title) <= 100 else f"{video.title[:97]}..."
 
-        # Truncate description if too long
-        description = video.description or ""
+        description = (video.description or "").strip()
         if len(description) > 200:
-            description = description[:197] + "..."
+            description = f"{description[:197]}..."
 
         message_parts = [
             "🎬 **New Video Alert!**",
@@ -71,22 +84,44 @@ class NotificationService:
             ]
         )
 
+        group_prompt = format_group_discussion_prompt(
+            chat_type=chat_type,
+            chat_title=chat_title,
+        )
+        if group_prompt:
+            message_parts.extend(["", group_prompt])
+
         return "\n".join(message_parts)
 
     async def send_subscription_confirmation(
-        self, user_telegram_id: str, channel: YouTubeChannel
+        self,
+        chat_telegram_id: str,
+        channel: YouTubeChannel,
+        *,
+        chat_title: str | None,
+        chat_type: str,
     ) -> int | None:
         """Send subscription confirmation message."""
         try:
+            if chat_type == "private":
+                intro = "✅ **Subscription Confirmed!**"
+                context_line = "You'll receive notifications when new videos are uploaded."
+            else:
+                intro = "✅ **Chat Subscription Activated!**"
+                audience = chat_title or "this chat"
+                context_line = (
+                    f"Everyone in {audience} will see updates from this YouTube channel."
+                )
+
             message = (
-                f"✅ **Subscription Confirmed!**\n\n"
-                f"You're now subscribed to **{channel.channel_name}**\n\n"
-                f"You'll receive notifications when new videos are uploaded.\n\n"
-                f"Channel: {channel.channel_url}"
+                f"{intro}\n\n"
+                f"**Channel:** {channel.channel_name}\n"
+                f"{context_line}\n\n"
+                f"Channel URL: {channel.channel_url}"
             )
 
             sent_message = await self.bot.send_message(
-                chat_id=user_telegram_id,
+                chat_id=chat_telegram_id,
                 text=message,
                 parse_mode="Markdown",
                 disable_web_page_preview=True,
@@ -94,25 +129,25 @@ class NotificationService:
 
             return sent_message.message_id
 
-        except TelegramError as e:
-            logger.error(f"Error sending subscription confirmation to {user_telegram_id}: {e}")
+        except TelegramError as error:
+            logger.error(f"Error sending subscription confirmation to chat {chat_telegram_id}: {error}")
             return None
 
     async def send_error_notification(
-        self, user_telegram_id: str, error_message: str
+        self, chat_telegram_id: str, error_message: str
     ) -> int | None:
-        """Send error notification to user."""
+        """Send error notification to chat."""
         try:
             message = f"❌ **Error:** {error_message}"
 
             sent_message = await self.bot.send_message(
-                chat_id=user_telegram_id,
+                chat_id=chat_telegram_id,
                 text=message,
                 parse_mode="Markdown",
             )
 
             return sent_message.message_id
 
-        except TelegramError as e:
-            logger.error(f"Error sending error notification to {user_telegram_id}: {e}")
+        except TelegramError as error:
+            logger.error(f"Error sending error notification to chat {chat_telegram_id}: {error}")
             return None

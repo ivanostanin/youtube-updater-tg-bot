@@ -213,6 +213,22 @@ helm uninstall youtube-updater-tg-bot
 - **Credential prerequisite**: Keep `objectStorage.enabled` set to `false` until the access and secret keys are populated in the chart Secret (or external secrets provider). Enabling backups without credentials causes the restore init container and backup CronJob to no-op, leaving deployments without protection.
 - **CronJob**: `kubectl logs cronjob/<release>-backup` verifies uploads at 02:00 UTC. The job mounts the same PVC as the StatefulSet.
 - **Integration pipeline**: Install dev dependencies (`uv sync --group dev`) and ensure `pytest-docker` is available, then run `UV_CACHE_DIR=.uv-cache uv run pytest tests/integration/test_backup_restore_minio.py -m integration -k minio`. The test suite auto-starts a MinIO container via `pytest-docker` and validates backup, restore, and lifecycle retention commands end-to-end (tests skip automatically if the plugin or Docker is unavailable).
+
+## Database Migration (Chat Support rollout)
+
+Story 1.9 introduces chat-aware subscriptions and replaces `subscriptions.user_id`/`notifications.user_id` with `chat_id`. Rollout steps:
+
+1. **Backup first** – capture a SQLite dump (`.backup` in the CLI) or database snapshot.
+2. **Install Alembic** – now bundled with the project (`pip install -e .` already pulls `alembic>=1.13.2`).
+3. **Run migrations** – execute:
+   ```bash
+   alembic -x db_url="$DATABASE_URL" upgrade head
+   ```
+   The script creates the `chats` table, migrates existing personal subscriptions into chat records (`type='private'`), and swaps repository foreign keys over to chats.
+4. **Verify data** – confirm `subscriptions.chat_id` and `notifications.chat_id` are populated, and that the bot can list subscriptions for both private and shared chats.
+5. **Rollback plan** – if needed, downgrade with `alembic -x db_url="$DATABASE_URL" downgrade -1` immediately after migration; this rehydrates `user_id` columns and drops chat tables (group data will be collapsed into pseudo users).
+
+Fresh environments call `alembic upgrade head` automatically via `init_db()` during bot startup, so no manual action is required for new installs.
 - **Startup auto-restore**: Init container runs `python scripts/restore-db.py --destination-path /app/data/bot.db` when the database file is missing.
 - **Manual validation (MinIO/OCI compatible)**:
   1. Export credentials/environment variables (`OBJECT_STORAGE_*`) and run `python scripts/backup-db.py --database-path ./data/bot.db`.

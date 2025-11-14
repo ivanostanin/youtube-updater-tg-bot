@@ -21,7 +21,27 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    subscriptions: Mapped[list[Subscription]] = relationship("Subscription", back_populates="user")
+    chats: Mapped[list[Chat]] = relationship("Chat", back_populates="user")
+
+
+class Chat(Base):
+    __tablename__ = "chats"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    chat_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    chat_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+
+    user: Mapped[User | None] = relationship("User", back_populates="chats")
+    subscriptions: Mapped[list[Subscription]] = relationship(
+        "Subscription", back_populates="chat", cascade="all, delete-orphan"
+    )
+    notifications: Mapped[list[Notification]] = relationship(
+        "Notification", back_populates="chat", cascade="all, delete-orphan"
+    )
 
 
 class YouTubeChannel(Base):
@@ -44,13 +64,13 @@ class Subscription(Base):
     __tablename__ = "subscriptions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
     channel_id: Mapped[int] = mapped_column(Integer, ForeignKey("youtube_channels.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notification_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    user: Mapped[User] = relationship("User", back_populates="subscriptions")
+    chat: Mapped[Chat] = relationship("Chat", back_populates="subscriptions")
     channel: Mapped[YouTubeChannel] = relationship("YouTubeChannel", back_populates="subscriptions")
 
 
@@ -75,9 +95,10 @@ class Notification(Base):
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
     video_id: Mapped[int] = mapped_column(Integer, ForeignKey("videos.id"), nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     message_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    chat: Mapped[Chat] = relationship("Chat", back_populates="notifications")
     video: Mapped[Video] = relationship("Video", back_populates="notifications")

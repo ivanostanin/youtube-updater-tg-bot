@@ -1,7 +1,17 @@
 import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    Chat as TelegramChat,
+)
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
+from telegram import (
+    User as TelegramUser,
+)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -12,7 +22,14 @@ from telegram.ext import (
 )
 
 from ..database.database import AsyncSessionLocal
-from ..database.repository import ChannelRepository, SubscriptionRepository, UserRepository
+from ..database.models import Chat as DBChat
+from ..database.models import User
+from ..database.repository import (
+    ChannelRepository,
+    ChatRepository,
+    SubscriptionRepository,
+    UserRepository,
+)
 from ..utils.config import settings
 from ..webhooks.pubsub import PubSubManager
 from ..youtube.api import YouTubeAPI
@@ -22,49 +39,69 @@ logger = logging.getLogger(__name__)
 
 
 class BotHandlers:
-    def __init__(self, youtube_api: YouTubeAPI):
+    def __init__(self, youtube_api: YouTubeAPI, bot: object | None = None):
         self.youtube_api = youtube_api
+        self.bot = bot
         self.webhook_manager = PubSubManager(webhook_url=settings.webhook_callback_url)
 
     async def manage_channel_webhook(self, channel_id: str, action: str = "subscribe") -> bool:
         """Manage webhook subscription for a YouTube channel."""
         try:
-            logger.info(f"manage_channel_webhook: {action}; channel_id: {channel_id}")
+            logger.info("manage_channel_webhook: %s; channel_id: %s", action, channel_id)
             if action == "subscribe":
                 success = await self.webhook_manager.subscribe_to_channel(channel_id)
-                if success:
-                    logger.info(f"Successfully registered webhook for channel {channel_id}")
-                else:
-                    logger.error(f"Failed to register webhook for channel {channel_id}")
-                return success
             elif action == "unsubscribe":
                 success = await self.webhook_manager.unsubscribe_from_channel(channel_id)
-                if success:
-                    logger.info(f"Successfully unregistered webhook for channel {channel_id}")
-                else:
-                    logger.error(f"Failed to unregister webhook for channel {channel_id}")
-                return success
-            logger.error("Unknown webhook action requested: %s", action)
-            return False
-        except Exception as e:
-            logger.error(f"Error managing webhook for channel {channel_id}: {e}")
+            else:
+                logger.error("Unknown webhook action requested: %s", action)
+                return False
+
+            if success:
+                logger.info("Webhook %s succeeded for channel %s", action, channel_id)
+            else:
+                logger.error("Webhook %s failed for channel %s", action, channel_id)
+            return success
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Error managing webhook for channel %s: %s", channel_id, exc)
             return False
 
     async def check_if_channel_has_other_subscribers(
-        self, session: AsyncSession, channel_id: int, exclude_user_id: int | None = None
+        self,
+        session: AsyncSession,
+        channel_id: int,
+        exclude_chat_id: int | None = None,
     ) -> bool:
-        """Check if a channel has other active subscribers."""
+        """Check if a channel has active subscribers other than the provided chat."""
         subscription_repo = SubscriptionRepository(session)
         subscriptions = await subscription_repo.get_channel_subscribers(channel_id)
+        return any(sub.chat_id != exclude_chat_id for sub in subscriptions)
 
-        # Filter out the excluded user (if any)
-        active_subs = [
-            sub
-            for sub in subscriptions
-            if exclude_user_id is None or sub.user_id != exclude_user_id
-        ]
+    async def _ensure_chat_record(
+        self,
+        session: AsyncSession,
+        *,
+        telegram_chat: TelegramChat,
+        db_user_id: int | None,
+    ) -> DBChat:
+        """Ensure there's a persisted chat entry for the Telegram chat."""
+        chat_repo = ChatRepository(session)
+        raw_title = (
+            getattr(telegram_chat, "title", None)
+            or getattr(telegram_chat, "username", None)
+            or getattr(telegram_chat, "full_name", None)
+            or getattr(telegram_chat, "first_name", None)
+        )
+        chat_title = str(raw_title) if raw_title is not None else None
+        raw_type = getattr(telegram_chat, "type", None)
+        chat_type = str(raw_type) if raw_type else "private"
+        user_id = db_user_id if chat_type == "private" else None
 
-        return len(active_subs) > 0
+        return await chat_repo.get_or_create_chat(
+            chat_id=str(telegram_chat.id),
+            chat_type=chat_type,
+            title=chat_title,
+            user_id=user_id,
+        )
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -74,18 +111,20 @@ class BotHandlers:
             logger.warning("Received /start without required user or message context")
             return
 
-        # chat = update.effective_chat
-        logger.info(f"Start command received from user {user.id} ({user.username})")
-
-        # Create or get user from database
         async with AsyncSessionLocal() as session:
             user_repo = UserRepository(session)
-            await user_repo.get_or_create_user(
+            db_user = await user_repo.get_or_create_user(
                 telegram_id=str(user.id),
                 username=user.username,
                 first_name=user.first_name,
                 last_name=user.last_name,
             )
+            if update.effective_chat:
+                await self._ensure_chat_record(
+                    session,
+                    telegram_chat=update.effective_chat,
+                    db_user_id=db_user.id,
+                )
 
         welcome_text = (
             "🎬 Welcome to YouTube Updater Bot!\n\n"
@@ -142,25 +181,45 @@ class BotHandlers:
         url = context.args[0]
         await self.handle_youtube_url(update, context, url)
 
+    async def _get_chat_and_user(
+        self,
+        session: AsyncSession,
+        *,
+        telegram_user: TelegramUser,
+        telegram_chat: TelegramChat,
+    ) -> tuple[User | None, DBChat | None]:
+        user_repo = UserRepository(session)
+        db_user = await user_repo.get_user_by_telegram_id(str(telegram_user.id))
+        if db_user is None:
+            return None, None
+        chat = await self._ensure_chat_record(
+            session,
+            telegram_chat=telegram_chat,
+            db_user_id=db_user.id,
+        )
+        return db_user, chat
+
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list command."""
         user = update.effective_user
         message = update.message
-        if user is None or message is None:
+        telegram_chat = update.effective_chat
+        if user is None or message is None or telegram_chat is None:
             logger.warning("Received /list without required context")
             return
 
         async with AsyncSessionLocal() as session:
-            user_repo = UserRepository(session)
             subscription_repo = SubscriptionRepository(session)
-
-            db_user = await user_repo.get_user_by_telegram_id(str(user.id))
-            if not db_user:
+            db_user, chat = await self._get_chat_and_user(
+                session,
+                telegram_user=user,
+                telegram_chat=telegram_chat,
+            )
+            if db_user is None or chat is None:
                 await message.reply_text("You don't have any subscriptions yet.")
                 return
 
-            subscriptions = await subscription_repo.get_user_subscriptions(db_user.id)
-
+            subscriptions = await subscription_repo.get_chat_subscriptions(chat.id)
             if not subscriptions:
                 await message.reply_text("You don't have any active subscriptions.")
                 return
@@ -176,37 +235,36 @@ class BotHandlers:
         """Handle /unsubscribe command."""
         user = update.effective_user
         message = update.message
-        if user is None or message is None:
+        telegram_chat = update.effective_chat
+        if user is None or message is None or telegram_chat is None:
             logger.warning("Received /unsubscribe without required context")
             return
 
         async with AsyncSessionLocal() as session:
-            user_repo = UserRepository(session)
             subscription_repo = SubscriptionRepository(session)
-
-            db_user = await user_repo.get_user_by_telegram_id(str(user.id))
-            if not db_user:
+            db_user, chat = await self._get_chat_and_user(
+                session,
+                telegram_user=user,
+                telegram_chat=telegram_chat,
+            )
+            if db_user is None or chat is None:
                 await message.reply_text("You don't have any subscriptions to remove.")
                 return
 
-            subscriptions = await subscription_repo.get_user_subscriptions(db_user.id)
-
+            subscriptions = await subscription_repo.get_chat_subscriptions(chat.id)
             if not subscriptions:
                 await message.reply_text("You don't have any active subscriptions.")
                 return
 
-            # Create inline keyboard with subscription options
-            keyboard = []
-            for sub in subscriptions:
-                keyboard.append(
-                    [
-                        InlineKeyboardButton(
-                            text=f"❌ {sub.channel.channel_name}",
-                            callback_data=f"unsub_{sub.channel.id}",
-                        )
-                    ]
-                )
-
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text=f"❌ {sub.channel.channel_name}",
+                        callback_data=f"unsub_{sub.channel.id}",
+                    )
+                ]
+                for sub in subscriptions
+            ]
             keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
 
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -235,49 +293,58 @@ class BotHandlers:
             await query.edit_message_text("Cancelled.")
             return
 
-        if data.startswith("unsub_"):
-            channel_id = int(data.split("_")[1])
-            user = update.effective_user
-            if user is None:
-                logger.warning("Unsubscribe callback missing user context")
-                await query.edit_message_text("Unable to identify user for unsubscribe action.")
+        if not data.startswith("unsub_"):
+            await query.edit_message_text("Unknown action.")
+            return
+
+        channel_id = int(data.split("_")[1])
+        user = update.effective_user or getattr(query, "from_user", None)
+        telegram_chat = update.effective_chat
+        if telegram_chat is None and query.message and getattr(query.message, "chat", None):
+            telegram_chat = query.message.chat
+        if user is None or telegram_chat is None:
+            logger.warning("Unsubscribe callback missing user or chat context")
+            await query.edit_message_text("Unable to identify user or chat for this action.")
+            return
+
+        async with AsyncSessionLocal() as session:
+            subscription_repo = SubscriptionRepository(session)
+            channel_repo = ChannelRepository(session)
+
+            db_user, chat = await self._get_chat_and_user(
+                session,
+                telegram_user=user,
+                telegram_chat=telegram_chat,
+            )
+            if db_user is None or chat is None:
+                await query.edit_message_text("You do not have subscriptions in this chat.")
                 return
 
-            async with AsyncSessionLocal() as session:
-                user_repo = UserRepository(session)
-                subscription_repo = SubscriptionRepository(session)
-                channel_repo = ChannelRepository(session)
+            channel = await channel_repo.get_channel(channel_id)
+            has_other_subscribers = await self.check_if_channel_has_other_subscribers(
+                session,
+                channel_id,
+                exclude_chat_id=chat.id,
+            )
 
-                db_user = await user_repo.get_user_by_telegram_id(str(user.id))
-                if db_user:
-                    # Get channel info before deletion for webhook cleanup
-                    channel = await channel_repo.get_channel(channel_id)
+            success = await subscription_repo.delete_subscription(chat.id, channel_id)
+            if not success:
+                await query.edit_message_text("❌ Failed to remove subscription.")
+                return
 
-                    # Check if this user is the last subscriber before deletion
-                    has_other_subscribers = await self.check_if_channel_has_other_subscribers(
-                        session, channel_id, exclude_user_id=db_user.id
-                    )
+            webhook_success = True
+            if not has_other_subscribers and channel is not None:
+                await query.edit_message_text(
+                    "✅ Removing subscription...\n🔗 Cleaning up notifications..."
+                )
+                webhook_success = await self.manage_channel_webhook(channel.channel_id, "unsubscribe")
 
-                    success = await subscription_repo.delete_subscription(db_user.id, channel_id)
-                    if success:
-                        # If this was the last subscriber, unregister the webhook
-                        webhook_success = True
-                        if not has_other_subscribers and channel:
-                            await query.edit_message_text(
-                                "✅ Removing subscription...\n🔗 Cleaning up notifications..."
-                            )
-                            webhook_success = await self.manage_channel_webhook(
-                                channel.channel_id, "unsubscribe"
-                            )
-
-                        if webhook_success:
-                            await query.edit_message_text("✅ Subscription removed successfully!")
-                        else:
-                            await query.edit_message_text(
-                                "✅ Subscription removed, but failed to clean up notifications."
-                            )
-                    else:
-                        await query.edit_message_text("❌ Failed to remove subscription.")
+            if webhook_success:
+                await query.edit_message_text("✅ Subscription removed successfully!")
+            else:
+                await query.edit_message_text(
+                    "✅ Subscription removed, but failed to clean up notifications."
+                )
 
     async def handle_youtube_url(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE, url: str
@@ -285,15 +352,14 @@ class BotHandlers:
         """Handle YouTube URL processing."""
         user = update.effective_user
         message = update.message
-        if user is None or message is None:
+        telegram_chat = update.effective_chat
+        if user is None or message is None or telegram_chat is None:
             logger.warning("handle_youtube_url missing user or message context")
             return
 
-        # Send processing message
         processing_msg = await message.reply_text("🔍 Processing YouTube URL...")
 
         try:
-            # Resolve the URL
             result = await self.youtube_api.resolve_url(url)
             if not result:
                 await processing_msg.edit_text(
@@ -306,21 +372,21 @@ class BotHandlers:
                 channel_repo = ChannelRepository(session)
                 subscription_repo = SubscriptionRepository(session)
 
-                # Get or create user
                 db_user = await user_repo.get_or_create_user(
                     telegram_id=str(user.id),
                     username=user.username,
                     first_name=user.first_name,
                     last_name=user.last_name,
                 )
+                chat = await self._ensure_chat_record(
+                    session,
+                    telegram_chat=telegram_chat,
+                    db_user_id=db_user.id,
+                )
 
-                # Handle different result types
                 if result.get("type") == "video":
-                    # Subscribe to the channel of the video
                     channel_info = result["channel"]
                     video_info = result["video"]
-
-                    # Get or create channel
                     db_channel = await channel_repo.get_or_create_channel(
                         channel_id=channel_info["id"],
                         channel_name=channel_info["title"],
@@ -328,8 +394,7 @@ class BotHandlers:
                         feed_url=self.youtube_api.get_feed_url(channel_info["id"]),
                     )
 
-                    # Check if already subscribed
-                    existing = await subscription_repo.get_subscription(db_user.id, db_channel.id)
+                    existing = await subscription_repo.get_subscription(chat.id, db_channel.id)
                     if existing:
                         await processing_msg.edit_text(
                             f"ℹ️ You're already subscribed to **{channel_info['title']}**\n"
@@ -338,15 +403,12 @@ class BotHandlers:
                         )
                         return
 
-                    # Check if this is the first subscriber for the channel
                     has_other_subscribers = await self.check_if_channel_has_other_subscribers(
                         session, db_channel.id
                     )
 
-                    # Create subscription
-                    await subscription_repo.create_subscription(db_user.id, db_channel.id)
+                    await subscription_repo.create_subscription(chat.id, db_channel.id)
 
-                    # Register webhook if this is the first subscriber
                     webhook_success = True
                     if not has_other_subscribers:
                         await processing_msg.edit_text(
@@ -361,14 +423,14 @@ class BotHandlers:
                         await processing_msg.edit_text(
                             f"✅ Successfully subscribed to **{channel_info['title']}**!\n"
                             f"(Found via video: {video_info['title']})\n\n"
-                            f"You'll receive notifications when new videos are uploaded.",
+                            "You'll receive notifications when new videos are uploaded.",
                             parse_mode="Markdown",
                         )
                     else:
                         await processing_msg.edit_text(
                             f"⚠️ Subscribed to **{channel_info['title']}** but couldn't set up real-time notifications.\n"
                             f"(Found via video: {video_info['title']})\n\n"
-                            f"You may experience delays in notifications.",
+                            "You may experience delays in notifications.",
                             parse_mode="Markdown",
                         )
 
@@ -378,10 +440,7 @@ class BotHandlers:
                     )
 
                 else:
-                    # Direct channel subscription
                     channel_info = result
-
-                    # Get or create channel
                     db_channel = await channel_repo.get_or_create_channel(
                         channel_id=channel_info["id"],
                         channel_name=channel_info["title"],
@@ -389,24 +448,20 @@ class BotHandlers:
                         feed_url=self.youtube_api.get_feed_url(channel_info["id"]),
                     )
 
-                    # Check if already subscribed
-                    existing = await subscription_repo.get_subscription(db_user.id, db_channel.id)
+                    existing = await subscription_repo.get_subscription(chat.id, db_channel.id)
                     if existing:
                         await processing_msg.edit_text(
-                            f"ℹ️ You're already subscribed to **{channel_info['title']}**",
+                            f"ℹ️ You're already subscribed to **{channel_info['title']}**.",
                             parse_mode="Markdown",
                         )
                         return
 
-                    # Check if this is the first subscriber for the channel
                     has_other_subscribers = await self.check_if_channel_has_other_subscribers(
                         session, db_channel.id
                     )
 
-                    # Create subscription
-                    await subscription_repo.create_subscription(db_user.id, db_channel.id)
+                    await subscription_repo.create_subscription(chat.id, db_channel.id)
 
-                    # Register webhook if this is the first subscriber
                     webhook_success = True
                     if not has_other_subscribers:
                         await processing_msg.edit_text(
@@ -420,18 +475,18 @@ class BotHandlers:
                     if webhook_success:
                         await processing_msg.edit_text(
                             f"✅ Successfully subscribed to **{channel_info['title']}**!\n\n"
-                            f"You'll receive notifications when new videos are uploaded.",
+                            "You'll receive notifications when new videos are uploaded.",
                             parse_mode="Markdown",
                         )
                     else:
                         await processing_msg.edit_text(
                             f"⚠️ Subscribed to **{channel_info['title']}** but couldn't set up real-time notifications.\n\n"
-                            f"You may experience delays in notifications.",
+                            "You may experience delays in notifications.",
                             parse_mode="Markdown",
                         )
 
-        except Exception as e:
-            logger.error(f"Error processing YouTube URL: {e}")
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error("Error processing YouTube URL: %s", exc)
             await processing_msg.edit_text(
                 "❌ An error occurred while processing the URL. Please try again later."
             )
@@ -446,17 +501,12 @@ class BotHandlers:
 
         text = message.text or ""
 
-        logger.info(f"Message received from user {user.id} ({user.username})")
-        logger.debug(f"Message content: {text}")
-
-        # Check if message contains YouTube URL
         youtube_patterns = [
             "youtube.com",
             "youtu.be",
         ]
 
         if any(pattern in text.lower() for pattern in youtube_patterns) and text:
-            # Extract URL from the text
             words = text.split()
             youtube_url = None
 
@@ -483,17 +533,12 @@ def setup_handlers(application: Application, youtube_api: YouTubeAPI) -> BotHand
     handlers = BotHandlers(youtube_api)
     logger.info("Setting up bot handlers")
 
-    # Command handlers
     application.add_handler(CommandHandler("start", handlers.start_command))
     application.add_handler(CommandHandler("help", handlers.help_command))
     application.add_handler(CommandHandler("subscribe", handlers.subscribe_command))
     application.add_handler(CommandHandler("list", handlers.list_command))
     application.add_handler(CommandHandler("unsubscribe", handlers.unsubscribe_command))
-
-    # Callback query handler
     application.add_handler(CallbackQueryHandler(handlers.handle_unsubscribe_callback))
-
-    # Message handler for YouTube URLs
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message)
     )

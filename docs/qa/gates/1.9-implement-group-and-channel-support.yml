@@ -1,0 +1,62 @@
+schema: 1
+story: "1.9"
+story_title: "Implement Group and Channel Support"
+gate: FAIL
+status_reason: "Alembic still applies the legacy (chat_id, channel_id) uniqueness and the integration suite keeps using user IDs, so AC4 and AC12 fail."
+reviewer: "Quinn (Test Architect)"
+updated: "2025-11-26T10:15:00Z"
+
+waiver: { active: false }
+
+top_issues:
+  - id: "QA-AC12"
+    severity: high
+    finding: "Integration flow still calls create_subscription/chat notifications with user IDs (`tests/integration/test_bot_flow.py:162`, `tests/integration/test_bot_flow.py:173`), so the new chat schema isn’t exercised and tests crash."
+    suggested_action: "Refactor integration fixtures/tests to create chats and use chat IDs end-to-end, then rerun pytest."
+  - id: "DATA-AC4"
+    severity: high
+    finding: "Alembic still recreates `uq_subscriptions_chat_channel` on (chat_id, channel_id) (`src/database/migrations/versions/20241202_implement_chat_support.py:174`), so soft-deleted records block re-subscribing."
+    suggested_action: "Align the constraint with the model (include is_active) or re-use inactive rows before inserting; cover with a re-subscribe regression test."
+
+risk_summary:
+  totals: { critical: 0, high: 2, medium: 0, low: 0 }
+  recommendations:
+    must_fix:
+      - "Repair test suite for chat-based schema and ensure pytest passes."
+      - "Resolve subscription uniqueness bug so chats can re-subscribe after opting out."
+    monitor: []
+
+quality_score: 5
+
+evidence:
+  tests_reviewed: 3
+  risks_identified: 2
+  trace:
+    ac_covered: [1, 2, 3, 5, 6, 7, 8, 9, 10, 11]
+    ac_gaps: [4, 12]
+
+nfr_validation:
+  security:
+    status: PASS
+    notes: "ACLService enforces admin-only operations for shared chats."
+  performance:
+    status: CONCERNS
+    notes: "No performance regression observed, but re-subscribe failure prevents end-to-end load validation."
+  reliability:
+    status: FAIL
+    notes: "Re-subscribe crashes on uniqueness conflicts, and automated tests cannot run to demonstrate stability."
+  maintainability:
+    status: CONCERNS
+    notes: "Code is largely refactored, but the broken test suite and missing re-subscribe path raise ongoing maintenance risk."
+
+recommendations:
+  immediate:
+    - action: "Update fixtures/tests to create chats and use chat IDs so the integration suite passes again."
+      refs:
+        - "tests/integration/test_bot_flow.py:162"
+        - "tests/integration/test_bot_flow.py:173"
+    - action: "Fix subscription reactivation so `/subscribe` succeeds after `/unsubscribe`."
+      refs:
+        - "src/database/migrations/versions/20241202_implement_chat_support.py:174"
+        - "src/database/repository.py:124"
+  future: []

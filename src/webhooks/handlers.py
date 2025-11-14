@@ -118,23 +118,27 @@ class WebhookHandlers:
                 # Send notifications to all subscribers
                 for subscription in subscriptions:
                     try:
-                        # Send notification via Telegram
+                        chat = subscription.chat
+
                         message_id = await self.notification_service.send_video_notification(
-                            user_telegram_id=subscription.user.telegram_id,
+                            chat_telegram_id=chat.chat_id,
                             video=video,
                             channel=channel,
+                            chat_title=chat.title,
+                            chat_type=chat.chat_type,
                         )
 
-                        # Record the notification
                         await notification_repo.create_notification(
-                            user_id=subscription.user_id,
+                            chat_id=chat.id,
                             video_id=video.id,
                             message_id=str(message_id) if message_id else None,
                         )
 
                     except Exception as e:
                         logger.error(
-                            f"Error sending notification to user {subscription.user.telegram_id}: {e}"
+                            "Error sending notification for subscription %s: %s",
+                            getattr(subscription, "id", "unknown"),
+                            e,
                         )
 
         except Exception as e:

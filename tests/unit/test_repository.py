@@ -10,9 +10,10 @@ import allure
 import pytest
 from sqlalchemy import select
 
-from src.database.models import Subscription, User, YouTubeChannel
+from src.database.models import Chat, Subscription, User, YouTubeChannel
 from src.database.repository import (
     ChannelRepository,
+    ChatRepository,
     NotificationRepository,
     SubscriptionRepository,
     UserRepository,
@@ -85,10 +86,11 @@ async def test_subscription_model_with_relationships(async_db_session):
         channel_name="Test",
         channel_url="https://youtube.com/channel/UCtest",
     )
-    async_db_session.add_all([user, channel])
+    chat = Chat(chat_id="123", chat_type="private", title="Test Chat")
+    async_db_session.add_all([user, channel, chat])
     await async_db_session.flush()
 
-    subscription = Subscription(user_id=user.id, channel_id=channel.id)
+    subscription = Subscription(chat_id=chat.id, channel_id=channel.id)
     async_db_session.add(subscription)
     await async_db_session.commit()
 
@@ -98,7 +100,7 @@ async def test_subscription_model_with_relationships(async_db_session):
     )
     saved_sub = result.scalar_one()
 
-    assert saved_sub.user_id == user.id
+    assert saved_sub.chat_id == chat.id
     assert saved_sub.channel_id == channel.id
     assert saved_sub.is_active is True
 
@@ -271,20 +273,26 @@ async def test_subscription_repository_create_subscription(async_db_session):
         async_db_session: Async database session fixture.
     """
     user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     sub_repo = SubscriptionRepository(async_db_session)
 
-    user = await user_repo.get_or_create_user(telegram_id="123", username="test")
+    await user_repo.get_or_create_user(telegram_id="123", username="test")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="123",
+        chat_type="private",
+        title="Test User",
+    )
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCtest",
         channel_name="Test",
         channel_url="https://youtube.com/channel/UCtest",
     )
 
-    subscription = await sub_repo.create_subscription(user.id, channel.id)
+    subscription = await sub_repo.create_subscription(chat.id, channel.id)
 
     assert subscription.id is not None
-    assert subscription.user_id == user.id
+    assert subscription.chat_id == chat.id
     assert subscription.channel_id == channel.id
     assert subscription.is_active is True
 
@@ -300,10 +308,16 @@ async def test_subscription_repository_get_user_subscriptions(async_db_session):
         async_db_session: Async database session fixture.
     """
     user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     sub_repo = SubscriptionRepository(async_db_session)
 
-    user = await user_repo.get_or_create_user(telegram_id="123", username="test")
+    await user_repo.get_or_create_user(telegram_id="123", username="test")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="123",
+        chat_type="private",
+        title="Test User",
+    )
     channel1 = await channel_repo.get_or_create_channel(
         channel_id="UC1", channel_name="Channel 1", channel_url="https://youtube.com/channel/UC1"
     )
@@ -311,10 +325,10 @@ async def test_subscription_repository_get_user_subscriptions(async_db_session):
         channel_id="UC2", channel_name="Channel 2", channel_url="https://youtube.com/channel/UC2"
     )
 
-    await sub_repo.create_subscription(user.id, channel1.id)
-    await sub_repo.create_subscription(user.id, channel2.id)
+    await sub_repo.create_subscription(chat.id, channel1.id)
+    await sub_repo.create_subscription(chat.id, channel2.id)
 
-    subscriptions = await sub_repo.get_user_subscriptions(user.id)
+    subscriptions = await sub_repo.get_chat_subscriptions(chat.id)
 
     assert len(subscriptions) == 2
     channel_ids = {sub.channel.channel_id for sub in subscriptions}
@@ -333,22 +347,28 @@ async def test_subscription_repository_get_subscription(async_db_session):
         async_db_session: Async database session fixture.
     """
     user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     sub_repo = SubscriptionRepository(async_db_session)
 
-    user = await user_repo.get_or_create_user(telegram_id="123", username="test")
+    await user_repo.get_or_create_user(telegram_id="123", username="test")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="123",
+        chat_type="private",
+        title="Test User",
+    )
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCtest",
         channel_name="Test",
         channel_url="https://youtube.com/channel/UCtest",
     )
 
-    await sub_repo.create_subscription(user.id, channel.id)
+    await sub_repo.create_subscription(chat.id, channel.id)
 
-    subscription = await sub_repo.get_subscription(user.id, channel.id)
+    subscription = await sub_repo.get_subscription(chat.id, channel.id)
 
     assert subscription is not None
-    assert subscription.user_id == user.id
+    assert subscription.chat_id == chat.id
     assert subscription.channel_id == channel.id
 
 
@@ -363,25 +383,63 @@ async def test_subscription_repository_delete_subscription(async_db_session):
         async_db_session: Async database session fixture.
     """
     user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     sub_repo = SubscriptionRepository(async_db_session)
 
-    user = await user_repo.get_or_create_user(telegram_id="123", username="test")
+    await user_repo.get_or_create_user(telegram_id="123", username="test")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="123",
+        chat_type="private",
+        title="Test User",
+    )
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCtest",
         channel_name="Test",
         channel_url="https://youtube.com/channel/UCtest",
     )
 
-    await sub_repo.create_subscription(user.id, channel.id)
+    await sub_repo.create_subscription(chat.id, channel.id)
 
     # Delete subscription
-    success = await sub_repo.delete_subscription(user.id, channel.id)
+    success = await sub_repo.delete_subscription(chat.id, channel.id)
     assert success is True
 
     # Verify it's no longer active
-    subscription = await sub_repo.get_subscription(user.id, channel.id)
+    subscription = await sub_repo.get_subscription(chat.id, channel.id)
     assert subscription is None  # get_subscription only returns active subscriptions
+
+
+@allure.feature("Database")
+@allure.story("Repositories")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_subscription_repository_reactivate_subscription(async_db_session):
+    """Test SubscriptionRepository reactivates existing subscriptions."""
+
+    chat_repo = ChatRepository(async_db_session)
+    channel_repo = ChannelRepository(async_db_session)
+    sub_repo = SubscriptionRepository(async_db_session)
+
+    chat = await chat_repo.get_or_create_chat(chat_id="chat-1", chat_type="private", title="Test Chat")
+    channel = await channel_repo.get_or_create_channel(
+        channel_id="UCreactivate",
+        channel_name="Reactivate Channel",
+        channel_url="https://youtube.com/channel/UCreactivate",
+    )
+
+    first = await sub_repo.create_subscription(chat.id, channel.id)
+    first_id = first.id
+
+    # Soft delete the subscription
+    deleted = await sub_repo.delete_subscription(chat.id, channel.id)
+    assert deleted is True
+
+    # Recreate should reactivate existing record
+    second = await sub_repo.create_subscription(chat.id, channel.id)
+    assert second.id == first_id
+    assert second.is_active is True
+    assert second.notification_enabled is True
 
 
 @allure.feature("Database")
@@ -395,26 +453,29 @@ async def test_subscription_repository_get_channel_subscribers(async_db_session)
         async_db_session: Async database session fixture.
     """
     user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     sub_repo = SubscriptionRepository(async_db_session)
 
-    user1 = await user_repo.get_or_create_user(telegram_id="111", username="user1")
-    user2 = await user_repo.get_or_create_user(telegram_id="222", username="user2")
+    await user_repo.get_or_create_user(telegram_id="111", username="user1")
+    await user_repo.get_or_create_user(telegram_id="222", username="user2")
+    chat1 = await chat_repo.get_or_create_chat(chat_id="111", chat_type="private", title="user1")
+    chat2 = await chat_repo.get_or_create_chat(chat_id="222", chat_type="private", title="user2")
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCtest",
         channel_name="Test",
         channel_url="https://youtube.com/channel/UCtest",
     )
 
-    await sub_repo.create_subscription(user1.id, channel.id)
-    await sub_repo.create_subscription(user2.id, channel.id)
+    await sub_repo.create_subscription(chat1.id, channel.id)
+    await sub_repo.create_subscription(chat2.id, channel.id)
 
     subscribers = await sub_repo.get_channel_subscribers(channel.id)
 
     assert len(subscribers) == 2
-    user_ids = {sub.user.telegram_id for sub in subscribers}
-    assert "111" in user_ids
-    assert "222" in user_ids
+    chat_ids = {sub.chat.chat_id for sub in subscribers}
+    assert "111" in chat_ids
+    assert "222" in chat_ids
 
 
 @allure.feature("Database")
@@ -496,11 +557,17 @@ async def test_notification_repository_create_notification(async_db_session):
         async_db_session: Async database session fixture.
     """
     user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     video_repo = VideoRepository(async_db_session)
     notif_repo = NotificationRepository(async_db_session)
 
-    user = await user_repo.get_or_create_user(telegram_id="123", username="test")
+    await user_repo.get_or_create_user(telegram_id="123", username="test")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="123",
+        chat_type="private",
+        title="test",
+    )
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCtest",
         channel_name="Test",
@@ -516,13 +583,13 @@ async def test_notification_repository_create_notification(async_db_session):
     )
 
     notification = await notif_repo.create_notification(
-        user_id=user.id,
+        chat_id=chat.id,
         video_id=video.id,
         message_id="telegram_msg_123",
     )
 
     assert notification.id is not None
-    assert notification.user_id == user.id
+    assert notification.chat_id == chat.id
     assert notification.video_id == video.id
     assert notification.message_id == "telegram_msg_123"
 
@@ -531,18 +598,24 @@ async def test_notification_repository_create_notification(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_notification_repository_get_user_notifications(async_db_session):
-    """Test NotificationRepository retrieves user notifications.
+async def test_notification_repository_get_chat_notifications(async_db_session):
+    """Test NotificationRepository retrieves chat notifications.
 
     Args:
         async_db_session: Async database session fixture.
     """
     user_repo = UserRepository(async_db_session)
+    chat_repo = ChatRepository(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     video_repo = VideoRepository(async_db_session)
     notif_repo = NotificationRepository(async_db_session)
 
-    user = await user_repo.get_or_create_user(telegram_id="123", username="test")
+    await user_repo.get_or_create_user(telegram_id="123", username="test")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="123",
+        chat_type="private",
+        title="test",
+    )
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCtest",
         channel_name="Test",
@@ -565,10 +638,10 @@ async def test_notification_repository_get_user_notifications(async_db_session):
         published_at=datetime(2024, 1, 2),
     )
 
-    await notif_repo.create_notification(user.id, video1.id)
-    await notif_repo.create_notification(user.id, video2.id)
+    await notif_repo.create_notification(chat.id, video1.id)
+    await notif_repo.create_notification(chat.id, video2.id)
 
-    notifications = await notif_repo.get_user_notifications(user.id)
+    notifications = await notif_repo.get_chat_notifications(chat.id)
 
     assert len(notifications) == 2
     # Should be ordered by sent_at desc, so most recent first

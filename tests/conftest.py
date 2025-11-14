@@ -121,6 +121,7 @@ def mock_telegram_update() -> MagicMock:
     chat.id = 123456789
     chat.type = "private"
     chat.username = "testuser"
+    chat.title = "Test Chat"
 
     # Create mock message
     message = MagicMock(spec=Message)
@@ -130,6 +131,8 @@ def mock_telegram_update() -> MagicMock:
     message.text = ""
     message.reply_text = AsyncMock()
     message.reply_html = AsyncMock()
+    message.edit_text = AsyncMock()
+    message.edit_caption = AsyncMock()
     message.date = datetime.now(UTC)
 
     # Create mock update
@@ -138,6 +141,7 @@ def mock_telegram_update() -> MagicMock:
     update.message = message
     update.effective_user = user
     update.effective_chat = chat
+    update.effective_message = message
     update.callback_query = None
 
     return update

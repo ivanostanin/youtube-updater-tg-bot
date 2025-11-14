@@ -11,7 +11,7 @@ import pytest
 from telegram import CallbackQuery, InlineKeyboardMarkup
 
 from src.bot.handlers import BotHandlers
-from src.database.models import Subscription, User, YouTubeChannel
+from src.database.models import Chat, Subscription, User, YouTubeChannel
 from src.database.repository import UserRepository
 
 
@@ -30,7 +30,7 @@ async def test_start_command_creates_user(
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
         await handlers.start_command(mock_telegram_update, mock_telegram_context)
@@ -61,7 +61,7 @@ async def test_help_command(mock_telegram_update, mock_telegram_context, mock_yo
         mock_telegram_context: Mock Telegram context fixture.
         mock_youtube_api: Mock YouTube API fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     await handlers.help_command(mock_telegram_update, mock_telegram_context)
 
@@ -89,7 +89,7 @@ async def test_subscribe_command_without_url(
         mock_telegram_context: Mock Telegram context fixture.
         mock_youtube_api: Mock YouTube API fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
     mock_telegram_context.args = []
 
     await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
@@ -115,7 +115,7 @@ async def test_subscribe_command_with_valid_url(
         mock_telegram_context: Mock Telegram context fixture.
         mock_youtube_api: Mock YouTube API fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
     mock_telegram_context.args = ["https://youtube.com/@testchannel"]
 
     # Mock handle_youtube_url to verify it was called
@@ -144,7 +144,7 @@ async def test_list_command_no_subscriptions(
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     # Create user without subscriptions
     user = User(
@@ -180,9 +180,9 @@ async def test_list_command_with_subscriptions(
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
-    # Create user, channel, and subscription
+    # Create user, chat, channel, and subscription
     user = User(
         telegram_id="123456789",
         username="testuser",
@@ -190,6 +190,14 @@ async def test_list_command_with_subscriptions(
         last_name="User",
     )
     async_db_session.add(user)
+    await async_db_session.flush()
+
+    chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type=mock_telegram_update.effective_chat.type,
+        title=mock_telegram_update.effective_chat.username,
+    )
+    async_db_session.add(chat)
     await async_db_session.flush()
 
     channel = YouTubeChannel(
@@ -201,7 +209,7 @@ async def test_list_command_with_subscriptions(
     async_db_session.add(channel)
     await async_db_session.flush()
 
-    subscription = Subscription(user_id=user.id, channel_id=channel.id, is_active=True)
+    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
     async_db_session.add(subscription)
     await async_db_session.commit()
 
@@ -231,7 +239,7 @@ async def test_unsubscribe_command_no_subscriptions(
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     # Create user without subscriptions
     user = User(
@@ -267,9 +275,9 @@ async def test_unsubscribe_command_with_subscriptions(
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
-    # Create user, channel, and subscription
+    # Create user, chat, channel, and subscription
     user = User(
         telegram_id="123456789",
         username="testuser",
@@ -277,6 +285,14 @@ async def test_unsubscribe_command_with_subscriptions(
         last_name="User",
     )
     async_db_session.add(user)
+    await async_db_session.flush()
+
+    chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type=mock_telegram_update.effective_chat.type,
+        title=mock_telegram_update.effective_chat.username,
+    )
+    async_db_session.add(chat)
     await async_db_session.flush()
 
     channel = YouTubeChannel(
@@ -288,7 +304,7 @@ async def test_unsubscribe_command_with_subscriptions(
     async_db_session.add(channel)
     await async_db_session.flush()
 
-    subscription = Subscription(user_id=user.id, channel_id=channel.id, is_active=True)
+    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
     async_db_session.add(subscription)
     await async_db_session.commit()
 
@@ -318,7 +334,7 @@ async def test_handle_unsubscribe_callback_cancel(
         mock_telegram_context: Mock Telegram context fixture.
         mock_youtube_api: Mock YouTube API fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     # Setup callback query
     query = MagicMock(spec=CallbackQuery)
@@ -349,11 +365,11 @@ async def test_handle_unsubscribe_callback_success(
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
     handlers.manage_channel_webhook = AsyncMock(return_value=True)
     handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=False)
 
-    # Create user, channel, and subscription
+    # Create user, chat, channel, and subscription
     user = User(
         telegram_id="123456789",
         username="testuser",
@@ -361,6 +377,14 @@ async def test_handle_unsubscribe_callback_success(
         last_name="User",
     )
     async_db_session.add(user)
+    await async_db_session.flush()
+
+    chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type=mock_telegram_update.effective_chat.type,
+        title=mock_telegram_update.effective_chat.username,
+    )
+    async_db_session.add(chat)
     await async_db_session.flush()
 
     channel = YouTubeChannel(
@@ -372,7 +396,7 @@ async def test_handle_unsubscribe_callback_success(
     async_db_session.add(channel)
     await async_db_session.flush()
 
-    subscription = Subscription(user_id=user.id, channel_id=channel.id, is_active=True)
+    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
     async_db_session.add(subscription)
     await async_db_session.commit()
 
@@ -407,7 +431,7 @@ async def test_handle_message_with_youtube_url(
         mock_telegram_context: Mock Telegram context fixture.
         mock_youtube_api: Mock YouTube API fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
     handlers.handle_youtube_url = AsyncMock()
 
     mock_telegram_update.message.text = "Check this out: https://youtube.com/@testchannel"
@@ -434,7 +458,7 @@ async def test_handle_message_without_youtube_url(
         mock_telegram_context: Mock Telegram context fixture.
         mock_youtube_api: Mock YouTube API fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     mock_telegram_update.message.text = "Hello bot, how are you?"
 
@@ -450,14 +474,17 @@ async def test_handle_message_without_youtube_url(
 @allure.story("Webhook Management")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_manage_channel_webhook_subscribe(mock_youtube_api, mock_pubsub_manager):
+async def test_manage_channel_webhook_subscribe(
+    mock_youtube_api, mock_pubsub_manager, mock_telegram_bot
+):
     """Test webhook management for subscribing to a channel.
 
     Args:
         mock_youtube_api: Mock YouTube API fixture.
         mock_pubsub_manager: Mock PubSubManager fixture.
+        mock_telegram_bot: Mock Telegram bot fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_bot)
     handlers.webhook_manager = mock_pubsub_manager
     mock_pubsub_manager.subscribe_to_channel = AsyncMock(return_value=True)
 
@@ -472,14 +499,17 @@ async def test_manage_channel_webhook_subscribe(mock_youtube_api, mock_pubsub_ma
 @allure.story("Webhook Management")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_manage_channel_webhook_unsubscribe(mock_youtube_api, mock_pubsub_manager):
+async def test_manage_channel_webhook_unsubscribe(
+    mock_youtube_api, mock_pubsub_manager, mock_telegram_bot
+):
     """Test webhook management for unsubscribing from a channel.
 
     Args:
         mock_youtube_api: Mock YouTube API fixture.
         mock_pubsub_manager: Mock PubSubManager fixture.
+        mock_telegram_bot: Mock Telegram bot fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_bot)
     handlers.webhook_manager = mock_pubsub_manager
     mock_pubsub_manager.unsubscribe_from_channel = AsyncMock(return_value=True)
 
@@ -494,14 +524,17 @@ async def test_manage_channel_webhook_unsubscribe(mock_youtube_api, mock_pubsub_
 @allure.story("Webhook Management")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_manage_channel_webhook_error_handling(mock_youtube_api, mock_pubsub_manager):
+async def test_manage_channel_webhook_error_handling(
+    mock_youtube_api, mock_pubsub_manager, mock_telegram_bot
+):
     """Test webhook management handles errors gracefully.
 
     Args:
         mock_youtube_api: Mock YouTube API fixture.
         mock_pubsub_manager: Mock PubSubManager fixture.
+        mock_telegram_bot: Mock Telegram bot fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_bot)
     handlers.webhook_manager = mock_pubsub_manager
     mock_pubsub_manager.subscribe_to_channel = AsyncMock(side_effect=Exception("Network error"))
 
@@ -515,19 +548,24 @@ async def test_manage_channel_webhook_error_handling(mock_youtube_api, mock_pubs
 @allure.story("Subscription Checks")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_check_if_channel_has_other_subscribers_true(mock_youtube_api, async_db_session):
+async def test_check_if_channel_has_other_subscribers_true(
+    mock_youtube_api, async_db_session, mock_telegram_bot
+):
     """Test checking for other subscribers returns True when others exist.
 
     Args:
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
+        mock_telegram_bot: Mock Telegram bot fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_bot)
 
     # Create channel with multiple subscribers
     user1 = User(telegram_id="111", username="user1", first_name="User", last_name="One")
     user2 = User(telegram_id="222", username="user2", first_name="User", last_name="Two")
-    async_db_session.add_all([user1, user2])
+    chat1 = Chat(chat_id="111", chat_type="private", title="user1")
+    chat2 = Chat(chat_id="222", chat_type="private", title="user2")
+    async_db_session.add_all([user1, user2, chat1, chat2])
     await async_db_session.flush()
 
     channel = YouTubeChannel(
@@ -539,14 +577,14 @@ async def test_check_if_channel_has_other_subscribers_true(mock_youtube_api, asy
     async_db_session.add(channel)
     await async_db_session.flush()
 
-    sub1 = Subscription(user_id=user1.id, channel_id=channel.id, is_active=True)
-    sub2 = Subscription(user_id=user2.id, channel_id=channel.id, is_active=True)
+    sub1 = Subscription(chat_id=chat1.id, channel_id=channel.id, is_active=True)
+    sub2 = Subscription(chat_id=chat2.id, channel_id=channel.id, is_active=True)
     async_db_session.add_all([sub1, sub2])
     await async_db_session.commit()
 
     # Check if channel has other subscribers excluding user1
     result = await handlers.check_if_channel_has_other_subscribers(
-        async_db_session, channel.id, exclude_user_id=user1.id
+        async_db_session, channel.id, exclude_chat_id=chat1.id
     )
 
     assert result is True
@@ -556,18 +594,22 @@ async def test_check_if_channel_has_other_subscribers_true(mock_youtube_api, asy
 @allure.story("Subscription Checks")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_check_if_channel_has_other_subscribers_false(mock_youtube_api, async_db_session):
+async def test_check_if_channel_has_other_subscribers_false(
+    mock_youtube_api, async_db_session, mock_telegram_bot
+):
     """Test checking for other subscribers returns False when only one exists.
 
     Args:
         mock_youtube_api: Mock YouTube API fixture.
         async_db_session: Async database session fixture.
+        mock_telegram_bot: Mock Telegram bot fixture.
     """
-    handlers = BotHandlers(mock_youtube_api)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_bot)
 
     # Create channel with single subscriber
     user = User(telegram_id="111", username="user1", first_name="User", last_name="One")
-    async_db_session.add(user)
+    chat = Chat(chat_id="111", chat_type="private", title="user1")
+    async_db_session.add_all([user, chat])
     await async_db_session.flush()
 
     channel = YouTubeChannel(
@@ -579,13 +621,13 @@ async def test_check_if_channel_has_other_subscribers_false(mock_youtube_api, as
     async_db_session.add(channel)
     await async_db_session.flush()
 
-    subscription = Subscription(user_id=user.id, channel_id=channel.id, is_active=True)
+    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
     async_db_session.add(subscription)
     await async_db_session.commit()
 
     # Check if channel has other subscribers excluding the only user
     result = await handlers.check_if_channel_has_other_subscribers(
-        async_db_session, channel.id, exclude_user_id=user.id
+        async_db_session, channel.id, exclude_chat_id=chat.id
     )
 
     assert result is False
