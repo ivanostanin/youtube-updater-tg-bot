@@ -333,6 +333,41 @@ async def test_subscription_repository_create_subscription(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
+async def test_subscription_repository_create_subscription_deduplicates(async_db_session):
+    """Ensure create_subscription cleans up stray duplicates before reactivation."""
+
+    chat_repo = ChatRepository(async_db_session)
+    channel_repo = ChannelRepository(async_db_session)
+    sub_repo = SubscriptionRepository(async_db_session)
+
+    chat = await chat_repo.get_or_create_chat(chat_id="dup-create", chat_type="private", title="Test")
+    channel = await channel_repo.get_or_create_channel(
+        channel_id="UCdupcreate",
+        channel_name="Dup Create",
+        channel_url="https://youtube.com/channel/UCdupcreate",
+    )
+
+    original = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=False)
+    duplicate = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
+    async_db_session.add_all([original, duplicate])
+    await async_db_session.commit()
+
+    subscription = await sub_repo.create_subscription(chat.id, channel.id)
+
+    assert subscription.is_active is True
+    result = await async_db_session.execute(
+        select(Subscription)
+        .where(Subscription.chat_id == chat.id)
+        .where(Subscription.channel_id == channel.id)
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1
+
+
+@allure.feature("Database")
+@allure.story("Repositories")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
 async def test_subscription_repository_get_user_subscriptions(async_db_session):
     """Test SubscriptionRepository retrieves user's subscriptions.
 
@@ -475,8 +510,8 @@ async def test_subscription_repository_handles_duplicate_rows_on_delete(async_db
         .where(Subscription.channel_id == channel.id)
     )
     records = result.scalars().all()
-    assert len(records) == 2
-    assert all(record.is_active is False for record in records)
+    assert len(records) == 1
+    assert records[0].is_active is False
 
 
 @allure.feature("Database")

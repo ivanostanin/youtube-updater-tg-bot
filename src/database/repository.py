@@ -166,6 +166,32 @@ class SubscriptionRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def _ensure_single_subscription(
+        self,
+        subscriptions: list[Subscription],
+        *,
+        chat_id: int,
+        channel_id: int,
+    ) -> Subscription | None:
+        if not subscriptions:
+            return None
+
+        canonical = subscriptions[0]
+        if len(subscriptions) == 1:
+            return canonical
+
+        duplicates = subscriptions[1:]
+        logger.warning(
+            "Removing duplicate subscription rows",
+            extra={"chat_id": chat_id, "channel_id": channel_id, "count": len(subscriptions)},
+        )
+        for duplicate in duplicates:
+            await self.session.delete(duplicate)
+
+        # Ensure deletions are flushed before other updates to avoid unique constraint violations.
+        await self.session.flush()
+        return canonical
+
     async def _get_subscription_record(
         self,
         chat_id: int,
@@ -179,14 +205,11 @@ class SubscriptionRepository:
             include_inactive=include_inactive,
             limit=2,
         )
-        if not subscriptions:
-            return None
-        if len(subscriptions) > 1:
-            logger.warning(
-                "Duplicate subscription rows detected",
-                extra={"chat_id": chat_id, "channel_id": channel_id, "count": len(subscriptions)},
-            )
-        return subscriptions[0]
+        return await self._ensure_single_subscription(
+            subscriptions,
+            chat_id=chat_id,
+            channel_id=channel_id,
+        )
 
     async def create_subscription(self, chat_id: int, channel_id: int) -> Subscription:
         """Create or reactivate a subscription."""
@@ -232,25 +255,17 @@ class SubscriptionRepository:
             channel_id,
             include_inactive=True,
         )
-        if not subscriptions:
+        subscription = await self._ensure_single_subscription(
+            subscriptions,
+            chat_id=chat_id,
+            channel_id=channel_id,
+        )
+        if subscription is None or not subscription.is_active:
             return False
 
-        changed = False
-        for subscription in subscriptions:
-            if subscription.is_active:
-                subscription.is_active = False
-                changed = True
-
-        if changed:
-            await self.session.commit()
-
-        if len(subscriptions) > 1:
-            logger.warning(
-                "Soft-deleting duplicate subscription rows",
-                extra={"chat_id": chat_id, "channel_id": channel_id, "count": len(subscriptions)},
-            )
-
-        return changed
+        subscription.is_active = False
+        await self.session.commit()
+        return True
 
     async def get_channel_subscribers(self, channel_id: int) -> list[Subscription]:
         """Get all active subscribers for a channel."""
