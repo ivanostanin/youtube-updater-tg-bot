@@ -3,9 +3,10 @@ from asyncio.exceptions import CancelledError
 
 from telegram.ext import Application, ContextTypes
 
-from ..database.database import init_db
+from ..database.database import AsyncSessionLocal, init_db
 from ..utils.config import settings
 from ..utils.logging import setup_logging
+from ..webhooks.synchronizer import WebhookSubscriptionSynchronizer
 from ..youtube.api import YouTubeAPI
 from .handlers import setup_handlers
 from .notifications import NotificationService
@@ -32,6 +33,9 @@ class YouTubeUpdaterBot:
             # Initialize database
             await init_db()
             logger.info("Database initialized")
+
+            synchronizer = WebhookSubscriptionSynchronizer(AsyncSessionLocal)
+            await synchronizer.run()
 
             # Create YouTube API client
             self.youtube_api = YouTubeAPI()

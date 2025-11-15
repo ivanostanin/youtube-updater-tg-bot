@@ -8,11 +8,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import allure
 import pytest
+from sqlalchemy import select
 from telegram import CallbackQuery, InlineKeyboardMarkup
 
 from src.bot.handlers import BotHandlers
 from src.database.models import Chat, Subscription, User, YouTubeChannel
 from src.database.repository import UserRepository
+from src.utils.config import settings
 
 
 @allure.feature("Bot Handlers")
@@ -704,6 +706,91 @@ async def test_manage_channel_webhook_error_handling(
 
     # Verify error was handled
     assert result is False
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Webhook Management")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_subscribe_sets_channel_webhook(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Ensure the channel stores the callback URL after initial subscription."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    handlers.manage_channel_webhook = AsyncMock(return_value=True)
+    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=False)
+
+    mock_youtube_api.resolve_url = AsyncMock(
+        return_value={
+            "id": "UCtest123",
+            "title": "Test Channel",
+            "url": "https://youtube.com/channel/UCtest123",
+        }
+    )
+    mock_youtube_api.get_feed_url = MagicMock(
+        return_value="https://youtube.com/feeds/videos.xml?channel_id=UCtest123"
+    )
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.handle_youtube_url(
+            mock_telegram_update,
+            mock_telegram_context,
+            "https://youtube.com/@testchannel",
+        )
+
+    subscription_rows = await async_db_session.execute(select(Subscription))
+    subscription = subscription_rows.scalar_one()
+    assert subscription.webhook_url == settings.webhook_callback_url
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Webhook Management")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_unsubscribe_clears_channel_webhook(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Ensure webhook metadata resets when the last subscriber leaves."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    handlers.manage_channel_webhook = AsyncMock(return_value=True)
+    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=False)
+
+    chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type=mock_telegram_update.effective_chat.type,
+        title=mock_telegram_update.effective_chat.username,
+    )
+    channel = YouTubeChannel(
+        channel_id="UClegacy",
+        channel_name="Legacy Channel",
+        channel_url="https://youtube.com/channel/UClegacy",
+    )
+    async_db_session.add_all([chat, channel])
+    await async_db_session.flush()
+
+    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
+    async_db_session.add(subscription)
+    await async_db_session.commit()
+    subscription.webhook_url = "https://old.example/webhook"
+    await async_db_session.commit()
+
+    query = MagicMock()
+    query.data = f"unsub_{channel.id}"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    mock_telegram_update.callback_query = query
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
+
+    updated_subscription = await async_db_session.get(Subscription, subscription.id)
+    assert updated_subscription.webhook_url is None
 
 
 @allure.feature("Bot Handlers")

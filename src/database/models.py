@@ -69,6 +69,7 @@ class Subscription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notification_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    webhook_url: Mapped[str | None] = mapped_column(String, nullable=True)
 
     chat: Mapped[Chat] = relationship("Chat", back_populates="subscriptions")
     channel: Mapped[YouTubeChannel] = relationship("YouTubeChannel", back_populates="subscriptions")

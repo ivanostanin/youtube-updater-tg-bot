@@ -28,7 +28,7 @@ from telegram.ext import (
 
 from ..database.database import AsyncSessionLocal
 from ..database.models import Chat as DBChat
-from ..database.models import User
+from ..database.models import Subscription, User
 from ..database.repository import (
     ChannelRepository,
     ChatRepository,
@@ -82,11 +82,14 @@ class BotHandlers:
         session: AsyncSession,
         channel_id: int,
         exclude_chat_id: int | None = None,
+        *,
+        subscribers: list[Subscription] | None = None,
     ) -> bool:
         """Check if a channel has active subscribers other than the provided chat."""
         subscription_repo = SubscriptionRepository(session)
-        subscriptions = await subscription_repo.get_channel_subscribers(channel_id)
-        return any(sub.chat_id != exclude_chat_id for sub in subscriptions)
+        if subscribers is None:
+            subscribers = await subscription_repo.get_channel_subscribers(channel_id)
+        return any(sub.chat_id != exclude_chat_id for sub in subscribers)
 
     async def _ensure_chat_record(
         self,
@@ -415,6 +418,7 @@ class BotHandlers:
                 return
 
             channel = await channel_repo.get_channel(channel_id)
+            subscription = await subscription_repo.get_subscription(chat.id, channel_id)
             has_other_subscribers = await self.check_if_channel_has_other_subscribers(
                 session,
                 channel_id,
@@ -432,6 +436,9 @@ class BotHandlers:
                     "✅ Removing subscription...\n🔗 Cleaning up notifications..."
                 )
                 webhook_success = await self.manage_channel_webhook(channel.channel_id, "unsubscribe")
+                if webhook_success and subscription is not None:
+                    subscription.webhook_url = None
+                    await session.commit()
 
             if webhook_success:
                 await query.edit_message_text("✅ Subscription removed successfully!")
@@ -504,11 +511,15 @@ class BotHandlers:
                         )
                         return
 
+                    channel_subscribers = await subscription_repo.get_channel_subscribers(db_channel.id)
                     has_other_subscribers = await self.check_if_channel_has_other_subscribers(
-                        session, db_channel.id
+                        session,
+                        db_channel.id,
+                        exclude_chat_id=chat.id,
+                        subscribers=channel_subscribers,
                     )
 
-                    await subscription_repo.create_subscription(chat.id, db_channel.id)
+                    subscription = await subscription_repo.create_subscription(chat.id, db_channel.id)
 
                     webhook_success = True
                     if not has_other_subscribers:
@@ -519,6 +530,25 @@ class BotHandlers:
                         webhook_success = await self.manage_channel_webhook(
                             channel_info["id"], "subscribe"
                         )
+                        if webhook_success and subscription.webhook_url != settings.webhook_callback_url:
+                            subscription.webhook_url = settings.webhook_callback_url
+                            await session.commit()
+                    else:
+                        inherited_webhook = next(
+                            (
+                                sub.webhook_url
+                                for sub in channel_subscribers
+                                if sub.chat_id != chat.id and sub.webhook_url
+                            ),
+                            None,
+                        )
+                        if (
+                            inherited_webhook
+                            and subscription.webhook_url != inherited_webhook
+                            and subscription.webhook_url is None
+                        ):
+                            subscription.webhook_url = inherited_webhook
+                            await session.commit()
 
                     if webhook_success:
                         await processing_msg.edit_text(
@@ -557,11 +587,15 @@ class BotHandlers:
                         )
                         return
 
+                    channel_subscribers = await subscription_repo.get_channel_subscribers(db_channel.id)
                     has_other_subscribers = await self.check_if_channel_has_other_subscribers(
-                        session, db_channel.id
+                        session,
+                        db_channel.id,
+                        exclude_chat_id=chat.id,
+                        subscribers=channel_subscribers,
                     )
 
-                    await subscription_repo.create_subscription(chat.id, db_channel.id)
+                    subscription = await subscription_repo.create_subscription(chat.id, db_channel.id)
 
                     webhook_success = True
                     if not has_other_subscribers:
@@ -572,6 +606,25 @@ class BotHandlers:
                         webhook_success = await self.manage_channel_webhook(
                             channel_info["id"], "subscribe"
                         )
+                        if webhook_success and subscription.webhook_url != settings.webhook_callback_url:
+                            subscription.webhook_url = settings.webhook_callback_url
+                            await session.commit()
+                    else:
+                        inherited_webhook = next(
+                            (
+                                sub.webhook_url
+                                for sub in channel_subscribers
+                                if sub.chat_id != chat.id and sub.webhook_url
+                            ),
+                            None,
+                        )
+                        if (
+                            inherited_webhook
+                            and subscription.webhook_url != inherited_webhook
+                            and subscription.webhook_url is None
+                        ):
+                            subscription.webhook_url = inherited_webhook
+                            await session.commit()
 
                     if webhook_success:
                         await processing_msg.edit_text(
