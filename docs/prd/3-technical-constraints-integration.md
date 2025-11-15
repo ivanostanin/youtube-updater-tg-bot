@@ -514,7 +514,7 @@ env:
 | **P0** | Database backups | Implement S3-compatible backup CronJob with OCI Object Storage (Story 1.2) | Sprint 1 |
 | **P1** | YouTube quota monitoring | Add quota usage metrics (Story 1.5) | Sprint 3 |
 | **P1** | Telegram rate limiting | Implement message queue | Sprint 3-4 |
-| **P2** | SQLite→PostgreSQL | Plan migration, test under load (Story 1.10) | Sprint 5 or backlog |
+| **P0** | SQLite→PostgreSQL | Plan migration, test under load (Story 1.10) | Sprint 2 (accelerated from backlog) |
 | **P2** | PubSubHubbub fallback | Design polling fallback (don't implement yet) | Backlog |
 | **P3** | Secrets rotation | Document rotation procedure | Sprint 2 |
 
