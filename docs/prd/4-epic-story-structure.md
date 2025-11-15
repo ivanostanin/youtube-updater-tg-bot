@@ -453,7 +453,7 @@ async def is_user_admin(bot, chat_id: int, user_id: int) -> bool:
 
 ### Story 1.10: Database Migration to PostgreSQL (Optional)
 
-**Priority:** P3 (Low)
+**Priority:** P0 (Critical)
 **Effort:** 8 story points
 **Sprint:** 5 (or backlog)
 **Trigger:** Response time p95 >1s OR concurrent users >500 OR lock errors >1%
@@ -492,6 +492,39 @@ so that **the system can scale to thousands of concurrent users**.
 
 ---
 
+### Story 1.11: Debug Logging Instrumentation
+
+**Priority:** P0 (Critical)
+**Effort:** 5 story points
+**Sprint:** 2 (pull-ahead to unblock incident response)
+**Trigger:** Sev1 incident lacking traceability or any production outage where Telegram/Webhook flows cannot be reconstructed from logs
+
+As a **support engineer triaging production incidents**,  
+I want **end-to-end debug-level instrumentation across Telegram handlers, services, repositories, and webhook pipelines**,  
+so that **we can trace every subscription workflow without reproducing issues live**.
+
+**Acceptance Criteria:**
+
+1. **Logging Blueprint & Helper:** Capture the standardized context keys (`chat_id`, `chat_type`, `user_id`, `channel_id`, `subscription_id`, `video_id`, `operation`, `request_id`) and redaction rules inside `CLAUDE.md`, and update `src/utils/logging.py` (or helper) so every handler/service automatically injects them. `.env.example` must clarify `LOG_LEVEL=DEBUG` enables the traces.
+2. **Bot Handlers & ACL:** Surround every handler in `src/bot/handlers.py` plus ACL helpers with entry/exit debug logs that emit context keys, sanitized chat/user names, and decision outcomes (admin verdicts, webhook actions, resolved channel IDs).
+3. **Repositories, Webhooks, and External Clients:** Instrument subscription repositories, `src/services/acl.py`, `src/webhooks/handlers.py`, `src/webhooks/pubsub.py`, `src/webhooks/synchronizer.py`, `src/bot/notifications.py`, and `src/youtube/api.py` so webhook requests, PubSub calls, notification attempts, and YouTube lookups all emit correlatable identifiers, status codes, and retry metadata without leaking secrets.
+4. **Validation & Docs:** Add `caplog`-based pytest coverage to verify the debug context keys, and extend `README.md` / `CLAUDE.md` with a “Debugging Playbook” describing how to enable DEBUG logs and interpret the fields. Ensure CI stays quiet when `LOG_LEVEL=INFO`.
+
+**Integration Verification:**
+
+- `/subscribe` flow logs start/finish pairs with `chat_id`, `user_id`, `channel_id`, webhook action, and subscription status when `LOG_LEVEL=DEBUG`.
+- Webhook notifications log inbound feed metadata, subscriber counts, notification IDs, and PubSub HTTP results.
+- `WebhookSubscriptionSynchronizer.run()` traces each channel decision (skip vs refresh) and hub responses.
+- New pytest cases using `caplog` pass, ensuring structured context keys exist and secrets remain redacted.
+
+**Technical Notes:**
+- Adhere to `docs/architecture/10-coding-standards.md#10.3` for structured logging and JSON-friendly formatting.
+- Never log raw Telegram message bodies; truncate chat titles/usernames >60 chars.
+- Use lazy formatting (`extra` dicts / adapters) so DEBUG-only strings are skipped when running at INFO.
+- All new instrumentation should remain silent when `LOG_LEVEL` ≥ INFO to avoid noise explosions in production.
+
+---
+
 ## 4.4 Story Dependencies and Sprint Schedule
 
 **Sprint Breakdown:**
@@ -506,7 +539,8 @@ Sprint 1 (Week 1-2): Foundation & Critical Fixes
 Sprint 2 (Week 3-4): Core Features & Group Support
   Story 1.4 (CI/CD) ─────────────────────> 5 SP
   Story 1.9 (Groups - P0) ───────────────> 13 SP ⚠️ CRITICAL PATH
-  Total: 18 SP
+  Story 1.11 (Debug Logging - P0) ───────> 5 SP
+  Total: 23 SP
 
 Sprint 3 (Week 5-6): Deployment & Monitoring
   Story 1.5 (Monitoring) ────────────────> 8 SP
@@ -565,6 +599,7 @@ Sprint 5:
 - Team capacity: 18-20 SP per 2-week sprint (solo developer or small team)
 - Total epic: ~86 SP = ~4.5 sprints (9 weeks)
 - Buffer: Add 20% for bug fixes, documentation = ~11 weeks total
-- Story 1.10 is optional and not counted in main timeline
+- Story 1.10 is now treated as a P0 critical item; include it in near-term planning once scale-trigger metrics approach thresholds
+- Story 1.11 debug logging instrumentation is P0; reserve Sprint 2 capacity or de-scope lower priorities to protect this observability work
 
 ---

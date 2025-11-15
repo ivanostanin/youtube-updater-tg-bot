@@ -4,6 +4,7 @@ Tests cover all command handlers including /start, /help, /subscribe, /list,
 /unsubscribe, callback query handling, and YouTube URL processing.
 """
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import allure
@@ -126,9 +127,14 @@ async def test_subscribe_command_with_valid_url(
     await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
 
     # Verify handle_youtube_url was called with the URL
-    handlers.handle_youtube_url.assert_called_once_with(
-        mock_telegram_update, mock_telegram_context, "https://youtube.com/@testchannel"
+    handlers.handle_youtube_url.assert_called_once()
+    call_args, call_kwargs = handlers.handle_youtube_url.call_args
+    assert call_args[:3] == (
+        mock_telegram_update,
+        mock_telegram_context,
+        "https://youtube.com/@testchannel",
     )
+    assert call_kwargs.get("request_id")
 
 
 @allure.feature("Bot Handlers")
@@ -612,6 +618,62 @@ async def test_handle_message_without_youtube_url(
     mock_telegram_update.message.reply_text.assert_called_once()
     call_args = mock_telegram_update.message.reply_text.call_args[0][0]
     assert "Send me a YouTube URL" in call_args
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Logging")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_subscribe_command_logs_context(
+    mock_telegram_update, mock_telegram_context, mock_youtube_api, caplog
+):
+    """Subscribe command emits structured logging context."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    handlers.handle_youtube_url = AsyncMock()
+    mock_telegram_context.args = ["https://youtube.com/@demo"]
+    caplog.set_level(logging.DEBUG)
+
+    await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
+
+    records = [
+        record
+        for record in caplog.records
+        if getattr(record, "operation", None) == "handler.subscribe"
+        and getattr(record, "meta_url_preview", None)
+    ]
+    assert records, "Expected handler.subscribe log entry"
+    record = records[0]
+    assert record.chat_id == str(mock_telegram_update.effective_chat.id)
+    assert record.user_id == str(mock_telegram_update.effective_user.id)
+    assert getattr(record, "request_id", None)
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Logging")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_handle_message_logs_context(
+    mock_telegram_update, mock_telegram_context, mock_youtube_api, caplog
+):
+    """handle_message emits debug log with chat/user/request identifiers."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    handlers.handle_youtube_url = AsyncMock()
+    mock_telegram_update.message.text = "Watch https://youtube.com/@context"
+    caplog.set_level(logging.DEBUG)
+
+    await handlers.handle_message(mock_telegram_update, mock_telegram_context)
+
+    records = [
+        record
+        for record in caplog.records
+        if getattr(record, "operation", None) == "handler.message"
+        and getattr(record, "meta_url_preview", None)
+    ]
+    assert records, "Expected handler.message log entry"
+    record = records[0]
+    assert record.chat_id == str(mock_telegram_update.effective_chat.id)
+    assert record.user_id == str(mock_telegram_update.effective_user.id)
+    assert getattr(record, "request_id", None)
 
 
 @allure.feature("Bot Handlers")

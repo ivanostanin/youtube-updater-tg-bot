@@ -4,7 +4,7 @@ Tests end-to-end bot flows including subscription, unsubscription,
 notification delivery, error recovery, and webhook verification.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import allure
 import pytest
@@ -124,7 +124,9 @@ async def test_unsubscription_flow_with_webhook_cleanup(
         await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
 
     # Verify webhook was cleaned up
-    handlers.manage_channel_webhook.assert_called_with("UCtest123", "unsubscribe")
+    handlers.manage_channel_webhook.assert_called_with(
+        "UCtest123", "unsubscribe", request_id=ANY
+    )
     updated = await async_db_session.execute(
         select(Subscription).where(Subscription.id == subscription.id)
     )

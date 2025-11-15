@@ -62,7 +62,14 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 | `DATABASE_URL` | Database connection string | `sqlite+aiosqlite:///./bot.db` |
 | `WEBHOOK_HOST` | Webhook server host | `localhost` |
 | `WEBHOOK_PORT` | Webhook server port | `8000` |
-| `LOG_LEVEL` | Logging level | `INFO` |
+| `LOG_LEVEL` | Logging level (`DEBUG` enables structured tracing) | `INFO` |
+
+## Debugging Playbook
+
+1. Set `LOG_LEVEL=DEBUG` in your `.env` (or export it in your shell) before launching the bot: `LOG_LEVEL=DEBUG uv run python -m src.main`.
+2. Reproduce the issue; each handler, repository call, and webhook operation will now log `chat_id`, `chat_type`, `user_id`, `channel_id`, `subscription_id`, `video_id`, `operation`, and a `request_id`.
+3. Track a single `request_id` across the logs to follow the full flow (Telegram command → DB operations → PubSub/Webhook/Notification).
+4. Metadata prefixed with `meta_` (for example `meta_chat_title` or `meta_url_preview`) provides sanitized context without leaking private content.
 
 ## Architecture
 

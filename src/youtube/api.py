@@ -1,4 +1,3 @@
-import logging
 import re
 from typing import Any
 
@@ -6,9 +5,10 @@ import feedparser
 import httpx
 
 from ..utils.config import settings
+from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class YouTubeAPI:
@@ -25,7 +25,6 @@ class YouTubeAPI:
 
     def extract_channel_id(self, url: str) -> str | None:
         """Extract channel ID from various YouTube URL formats."""
-        # Handle different YouTube URL formats
         patterns = [
             r"youtube\.com/channel/([a-zA-Z0-9_-]+)",
             r"youtube\.com/c/([a-zA-Z0-9_-]+)",
@@ -37,9 +36,8 @@ class YouTubeAPI:
             match = re.search(pattern, url)
             if match:
                 identifier = match.group(1)
-                # For @handle format, we need to resolve it via API
                 if "@" in url:
-                    return identifier  # Will be resolved later
+                    return identifier  # Will be resolved via API later
                 return identifier
 
         return None
@@ -67,8 +65,12 @@ class YouTubeAPI:
             return match.group(1)
         return None
 
-    async def get_channel_by_id(self, channel_id: str) -> dict[str, Any] | None:
+    async def get_channel_by_id(
+        self, channel_id: str, *, request_id: str | None = None
+    ) -> dict[str, Any] | None:
         """Get channel information by channel ID."""
+        correlation_id = request_id or new_request_id()
+        operation = "youtube.get_channel_by_id"
         try:
             response = await self.client.get(
                 f"{self.base_url}/channels",
@@ -83,20 +85,42 @@ class YouTubeAPI:
 
             if data.get("items"):
                 item = data["items"][0]
-                return {
+                channel_data = {
                     "id": item["id"],
                     "title": item["snippet"]["title"],
                     "description": item["snippet"]["description"],
                     "url": f"https://www.youtube.com/channel/{item['id']}",
                     "thumbnail": item["snippet"]["thumbnails"]["default"]["url"],
                 }
+                logger.debug(
+                    "Fetched channel by id",
+                    extra=log_context(
+                        request_id=correlation_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_channel_title=sanitize_label(item["snippet"]["title"]),
+                    ),
+                )
+                return channel_data
         except Exception as e:
-            logger.error(f"Error fetching channel {channel_id}: {e}")
+            logger.error(
+                "Error fetching channel by id",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
 
         return None
 
-    async def get_channel_by_username(self, username: str) -> dict[str, Any] | None:
+    async def get_channel_by_username(
+        self, username: str, *, request_id: str | None = None
+    ) -> dict[str, Any] | None:
         """Get channel information by username."""
+        correlation_id = request_id or new_request_id()
+        operation = "youtube.get_channel_by_username"
         try:
             response = await self.client.get(
                 f"{self.base_url}/channels",
@@ -111,22 +135,44 @@ class YouTubeAPI:
 
             if data.get("items"):
                 item = data["items"][0]
-                return {
+                channel_data = {
                     "id": item["id"],
                     "title": item["snippet"]["title"],
                     "description": item["snippet"]["description"],
                     "url": f"https://www.youtube.com/channel/{item['id']}",
                     "thumbnail": item["snippet"]["thumbnails"]["default"]["url"],
                 }
+                logger.debug(
+                    "Fetched channel by username",
+                    extra=log_context(
+                        request_id=correlation_id,
+                        operation=operation,
+                        channel_id=item["id"],
+                        meta_username=sanitize_label(username),
+                        meta_channel_title=sanitize_label(item["snippet"]["title"]),
+                    ),
+                )
+                return channel_data
         except Exception as e:
-            logger.error(f"Error fetching channel by username {username}: {e}")
+            logger.error(
+                "Error fetching channel by username",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation=operation,
+                    meta_username=sanitize_label(username),
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
 
         return None
 
-    async def get_channel_by_handle(self, handle: str) -> dict[str, Any] | None:
+    async def get_channel_by_handle(
+        self, handle: str, *, request_id: str | None = None
+    ) -> dict[str, Any] | None:
         """Get channel information by handle (@username)."""
+        correlation_id = request_id or new_request_id()
+        operation = "youtube.get_channel_by_handle"
         try:
-            # Remove @ if present
             handle = handle.lstrip("@")
             response = await self.client.get(
                 f"{self.base_url}/channels",
@@ -141,20 +187,43 @@ class YouTubeAPI:
 
             if data.get("items"):
                 item = data["items"][0]
-                return {
+                channel_data = {
                     "id": item["id"],
                     "title": item["snippet"]["title"],
                     "description": item["snippet"]["description"],
                     "url": f"https://www.youtube.com/channel/{item['id']}",
                     "thumbnail": item["snippet"]["thumbnails"]["default"]["url"],
                 }
+                logger.debug(
+                    "Fetched channel by handle",
+                    extra=log_context(
+                        request_id=correlation_id,
+                        operation=operation,
+                        channel_id=item["id"],
+                        meta_handle=sanitize_label(handle),
+                        meta_channel_title=sanitize_label(item["snippet"]["title"]),
+                    ),
+                )
+                return channel_data
         except Exception as e:
-            logger.error(f"Error fetching channel by handle {handle}: {e}")
+            logger.error(
+                "Error fetching channel by handle",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation=operation,
+                    meta_handle=sanitize_label(handle),
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
 
         return None
 
-    async def get_video_info(self, video_id: str) -> dict[str, Any] | None:
+    async def get_video_info(
+        self, video_id: str, *, request_id: str | None = None
+    ) -> dict[str, Any] | None:
         """Get video information by video ID."""
+        correlation_id = request_id or new_request_id()
+        operation = "youtube.get_video_info"
         try:
             response = await self.client.get(
                 f"{self.base_url}/videos",
@@ -169,7 +238,7 @@ class YouTubeAPI:
 
             if data.get("items"):
                 item = data["items"][0]
-                return {
+                video_data = {
                     "id": item["id"],
                     "title": item["snippet"]["title"],
                     "description": item["snippet"]["description"],
@@ -179,33 +248,66 @@ class YouTubeAPI:
                     "thumbnail": item["snippet"]["thumbnails"]["default"]["url"],
                     "url": f"https://www.youtube.com/watch?v={item['id']}",
                 }
+                logger.debug(
+                    "Fetched video info",
+                    extra=log_context(
+                        request_id=correlation_id,
+                        operation=operation,
+                        video_id=video_id,
+                        channel_id=item["snippet"]["channelId"],
+                        meta_video_title=sanitize_label(item["snippet"]["title"]),
+                    ),
+                )
+                return video_data
         except Exception as e:
-            logger.error(f"Error fetching video {video_id}: {e}")
+            logger.error(
+                "Error fetching video info",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation=operation,
+                    video_id=video_id,
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
 
         return None
 
-    async def resolve_url(self, url: str) -> dict[str, Any] | None:
+    async def resolve_url(
+        self, url: str, *, request_id: str | None = None
+    ) -> dict[str, Any] | None:
         """Resolve YouTube URL and return appropriate information."""
-        # Try to extract channel ID
+        correlation_id = request_id or new_request_id()
+        logger.debug(
+            "Resolving YouTube URL",
+            extra=log_context(
+                request_id=correlation_id,
+                operation="youtube.resolve_url",
+                meta_url_preview=sanitize_label(url),
+            ),
+        )
+
         channel_id = self.extract_channel_id(url)
         if channel_id:
-            # Check if it's a handle
             if "@" in url:
-                return await self.get_channel_by_handle(channel_id)
-            else:
-                channel_info = await self.get_channel_by_id(channel_id)
-                if not channel_info:
-                    # Try as username
-                    channel_info = await self.get_channel_by_username(channel_id)
-                return channel_info
+                return await self.get_channel_by_handle(
+                    channel_id, request_id=correlation_id
+                )
+            channel_info = await self.get_channel_by_id(
+                channel_id, request_id=correlation_id
+            )
+            if not channel_info:
+                channel_info = await self.get_channel_by_username(
+                    channel_id, request_id=correlation_id
+                )
+            return channel_info
 
-        # Try to extract video ID
         video_id = self.extract_video_id(url)
         if video_id:
-            video_info = await self.get_video_info(video_id)
+            video_info = await self.get_video_info(video_id, request_id=correlation_id)
             if video_info:
-                # Also get channel info for the video
-                channel_info = await self.get_channel_by_id(video_info["channel_id"])
+                channel_info = await self.get_channel_by_id(
+                    video_info["channel_id"], request_id=correlation_id
+                )
                 if channel_info:
                     return {
                         "type": "video",
@@ -213,24 +315,34 @@ class YouTubeAPI:
                         "channel": channel_info,
                     }
 
-        # Try to extract playlist ID
         playlist_id = self.extract_playlist_id(url)
         if playlist_id:
-            # For now, just return playlist info
             return {
                 "type": "playlist",
                 "id": playlist_id,
                 "url": url,
             }
 
+        logger.debug(
+            "Unable to resolve YouTube URL",
+            extra=log_context(
+                request_id=correlation_id,
+                operation="youtube.resolve_url",
+                meta_url_preview=sanitize_label(url),
+            ),
+        )
         return None
 
     def get_feed_url(self, channel_id: str) -> str:
         """Get RSS feed URL for a YouTube channel."""
         return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
 
-    async def check_feed_for_updates(self, feed_url: str) -> list[dict[str, Any]]:
+    async def check_feed_for_updates(
+        self, feed_url: str, *, request_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """Check RSS feed for new videos."""
+        correlation_id = request_id or new_request_id()
+        operation = "youtube.check_feed"
         try:
             response = await self.client.get(feed_url)
             response.raise_for_status()
@@ -249,8 +361,25 @@ class YouTubeAPI:
                 }
                 videos.append(video)
 
+            logger.debug(
+                "Fetched feed entries",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation=operation,
+                    meta_feed_url=sanitize_label(feed_url),
+                    meta_entry_count=len(videos),
+                ),
+            )
             return videos
 
         except Exception as e:
-            logger.error(f"Error checking feed {feed_url}: {e}")
+            logger.error(
+                "Error checking YouTube feed",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation=operation,
+                    meta_feed_url=sanitize_label(feed_url),
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
             return []

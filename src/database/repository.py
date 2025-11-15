@@ -7,10 +7,34 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..utils.logging import get_logger, log_context, new_request_id
 from .models import Chat, Notification, Subscription, User, Video, YouTubeChannel
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+
+def _repo_log(
+    level: int,
+    message: str,
+    *,
+    request_id: str,
+    operation: str,
+    chat_id: int | str | None = None,
+    channel_id: int | str | None = None,
+    subscription_id: int | None = None,
+    extra: dict[str, object] | None = None,
+) -> None:
+    payload: dict[str, object] = {
+        "request_id": request_id,
+        "operation": operation,
+        "chat_id": str(chat_id) if chat_id is not None else None,
+        "channel_id": str(channel_id) if channel_id is not None else None,
+        "subscription_id": subscription_id,
+    }
+    if extra:
+        payload.update(extra)
+    logger.log(level, message, extra=log_context(**payload))
 
 
 class UserRepository:
@@ -152,7 +176,19 @@ class SubscriptionRepository:
         *,
         include_inactive: bool = True,
         limit: int | None = None,
+        request_id: str | None = None,
     ) -> list[Subscription]:
+        correlation_id = request_id or new_request_id()
+        operation = "repository.fetch_subscription_rows"
+        _repo_log(
+            logging.DEBUG,
+            "Fetching subscription rows",
+            request_id=correlation_id,
+            operation=operation,
+            chat_id=chat_id,
+            channel_id=channel_id,
+            extra={"meta_include_inactive": include_inactive, "meta_limit": limit},
+        )
         stmt = (
             select(Subscription)
             .where(Subscription.chat_id == chat_id)
@@ -164,7 +200,17 @@ class SubscriptionRepository:
         if limit is not None:
             stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        rows = list(result.scalars().all())
+        _repo_log(
+            logging.DEBUG,
+            "Fetched subscription rows",
+            request_id=correlation_id,
+            operation=operation,
+            chat_id=chat_id,
+            channel_id=channel_id,
+            extra={"meta_row_count": len(rows)},
+        )
+        return rows
 
     async def _ensure_single_subscription(
         self,
@@ -172,6 +218,7 @@ class SubscriptionRepository:
         *,
         chat_id: int,
         channel_id: int,
+        request_id: str | None = None,
     ) -> Subscription | None:
         if not subscriptions:
             return None
@@ -181,9 +228,15 @@ class SubscriptionRepository:
             return canonical
 
         duplicates = subscriptions[1:]
-        logger.warning(
+        correlation_id = request_id or new_request_id()
+        _repo_log(
+            logging.WARNING,
             "Removing duplicate subscription rows",
-            extra={"chat_id": chat_id, "channel_id": channel_id, "count": len(subscriptions)},
+            request_id=correlation_id,
+            operation="repository.clean_duplicate_subscriptions",
+            chat_id=chat_id,
+            channel_id=channel_id,
+            extra={"meta_duplicate_count": len(subscriptions)},
         )
         for duplicate in duplicates:
             await self.session.delete(duplicate)
@@ -198,27 +251,46 @@ class SubscriptionRepository:
         channel_id: int,
         *,
         include_inactive: bool = True,
+        request_id: str | None = None,
     ) -> Subscription | None:
+        correlation_id = request_id or new_request_id()
         subscriptions = await self._fetch_subscription_rows(
             chat_id,
             channel_id,
             include_inactive=include_inactive,
             limit=2,
+            request_id=correlation_id,
         )
         return await self._ensure_single_subscription(
             subscriptions,
             chat_id=chat_id,
             channel_id=channel_id,
+            request_id=correlation_id,
         )
 
-    async def create_subscription(self, chat_id: int, channel_id: int) -> Subscription:
+    async def create_subscription(
+        self, chat_id: int, channel_id: int, *, request_id: str | None = None
+    ) -> Subscription:
         """Create or reactivate a subscription."""
-        subscription = await self._get_subscription_record(chat_id, channel_id)
+        correlation_id = request_id or new_request_id()
+        subscription = await self._get_subscription_record(
+            chat_id, channel_id, request_id=correlation_id
+        )
         if subscription:
             subscription.is_active = True
             subscription.notification_enabled = True
             await self.session.commit()
             await self.session.refresh(subscription)
+            _repo_log(
+                logging.DEBUG,
+                "Reactivated subscription",
+                request_id=correlation_id,
+                operation="repository.create_subscription",
+                chat_id=chat_id,
+                channel_id=channel_id,
+                subscription_id=subscription.id,
+                extra={"meta_reactivated": True},
+            )
             return subscription
 
         subscription = Subscription(
@@ -228,47 +300,111 @@ class SubscriptionRepository:
         self.session.add(subscription)
         await self.session.commit()
         await self.session.refresh(subscription)
+        _repo_log(
+            logging.DEBUG,
+            "Created subscription",
+            request_id=correlation_id,
+            operation="repository.create_subscription",
+            chat_id=chat_id,
+            channel_id=channel_id,
+            subscription_id=subscription.id,
+            extra={"meta_reactivated": False},
+        )
         return subscription
 
-    async def get_chat_subscriptions(self, chat_id: int) -> list[Subscription]:
+    async def get_chat_subscriptions(
+        self, chat_id: int, *, request_id: str | None = None
+    ) -> list[Subscription]:
         """Get all subscriptions for a chat."""
+        correlation_id = request_id or new_request_id()
+        operation = "repository.get_chat_subscriptions"
         result = await self.session.execute(
             select(Subscription)
                 .where(Subscription.chat_id == chat_id)
                 .where(Subscription.is_active)
                 .options(selectinload(Subscription.channel))
         )
-        return list(result.scalars().all())
+        subscriptions = list(result.scalars().all())
+        _repo_log(
+            logging.DEBUG,
+            "Fetched chat subscriptions",
+            request_id=correlation_id,
+            operation=operation,
+            chat_id=chat_id,
+            extra={"meta_subscription_count": len(subscriptions)},
+        )
+        return subscriptions
 
-    async def get_subscription(self, chat_id: int, channel_id: int) -> Subscription | None:
+    async def get_subscription(
+        self, chat_id: int, channel_id: int, *, request_id: str | None = None
+    ) -> Subscription | None:
         """Get a specific active subscription."""
-        return await self._get_subscription_record(
+        correlation_id = request_id or new_request_id()
+        subscription = await self._get_subscription_record(
             chat_id,
             channel_id,
             include_inactive=False,
+            request_id=correlation_id,
         )
+        _repo_log(
+            logging.DEBUG,
+            "Fetched subscription record",
+            request_id=correlation_id,
+            operation="repository.get_subscription",
+            chat_id=chat_id,
+            channel_id=channel_id,
+            subscription_id=getattr(subscription, "id", None),
+            extra={"meta_found": bool(subscription)},
+        )
+        return subscription
 
-    async def delete_subscription(self, chat_id: int, channel_id: int) -> bool:
+    async def delete_subscription(
+        self, chat_id: int, channel_id: int, *, request_id: str | None = None
+    ) -> bool:
         """Soft delete a subscription."""
+        correlation_id = request_id or new_request_id()
         subscriptions = await self._fetch_subscription_rows(
             chat_id,
             channel_id,
             include_inactive=True,
+            request_id=correlation_id,
         )
         subscription = await self._ensure_single_subscription(
             subscriptions,
             chat_id=chat_id,
             channel_id=channel_id,
+            request_id=correlation_id,
         )
         if subscription is None or not subscription.is_active:
+            _repo_log(
+                logging.DEBUG,
+                "No active subscription to delete",
+                request_id=correlation_id,
+                operation="repository.delete_subscription",
+                chat_id=chat_id,
+                channel_id=channel_id,
+            )
             return False
 
         subscription.is_active = False
         await self.session.commit()
+        _repo_log(
+            logging.DEBUG,
+            "Subscription marked inactive",
+            request_id=correlation_id,
+            operation="repository.delete_subscription",
+            chat_id=chat_id,
+            channel_id=channel_id,
+            subscription_id=subscription.id,
+        )
         return True
 
-    async def get_channel_subscribers(self, channel_id: int) -> list[Subscription]:
+    async def get_channel_subscribers(
+        self, channel_id: int, *, request_id: str | None = None
+    ) -> list[Subscription]:
         """Get all active subscribers for a channel."""
+        correlation_id = request_id or new_request_id()
+        operation = "repository.get_channel_subscribers"
         result = await self.session.execute(
             select(Subscription)
             .where(Subscription.channel_id == channel_id)
@@ -276,7 +412,16 @@ class SubscriptionRepository:
             .where(Subscription.notification_enabled)
             .options(selectinload(Subscription.chat))
         )
-        return list(result.scalars().all())
+        subscribers = list(result.scalars().all())
+        _repo_log(
+            logging.DEBUG,
+            "Fetched channel subscribers",
+            request_id=correlation_id,
+            operation=operation,
+            channel_id=channel_id,
+            extra={"meta_subscriber_count": len(subscribers)},
+        )
+        return subscribers
 
 
 class VideoRepository:

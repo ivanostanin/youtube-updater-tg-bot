@@ -1,10 +1,11 @@
-import logging
 from urllib.parse import urlparse
 
 import httpx
 
+from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 
-logger = logging.getLogger(__name__)
+
+logger = get_logger(__name__)
 
 
 class PubSubManager:
@@ -26,16 +27,19 @@ class PubSubManager:
         hostname = parsed.hostname or ""
         return hostname in {"localhost", "127.0.0.1", "0.0.0.0"} or hostname.startswith("127.")
 
-    def _short_circuit(self, action: str, channel_id: str) -> bool:
+    def _short_circuit(self, action: str, channel_id: str, *, request_id: str) -> bool:
         """Skip remote hub calls for local callbacks to avoid noisy failures."""
         if not self._local_callback:
             return False
 
         logger.info(
-            "Skipping PubSub %s for channel %s because callback %s is local-only.",
-            action,
-            channel_id,
-            self.webhook_url,
+            "Skipping PubSub action because callback is local-only",
+            extra=log_context(
+                request_id=request_id,
+                operation=f"pubsub.{action}",
+                channel_id=channel_id,
+                meta_webhook_url=self.webhook_url,
+            ),
         )
         return True
 
@@ -45,8 +49,10 @@ class PubSubManager:
 
     async def subscribe_to_channel(self, channel_id: str) -> bool:
         """Subscribe to YouTube channel updates via PubSubHubbub."""
+        request_id = new_request_id()
+        operation = "pubsub.subscribe"
         try:
-            if self._short_circuit("subscribe", channel_id):
+            if self._short_circuit("subscribe", channel_id, request_id=request_id):
                 return True
 
             topic_url = self.get_topic_url(channel_id)
@@ -58,7 +64,15 @@ class PubSubManager:
                 "hub.mode": "subscribe",
             }
 
-            logger.info(data)
+            logger.debug(
+                "Submitting PubSub subscribe request",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                    meta_payload={k: v for k, v in data.items() if "hub" in k},
+                ),
+            )
 
             response = await self.client.post(
                 self.hub_url,
@@ -68,33 +82,79 @@ class PubSubManager:
             )
 
             if response.status_code == 204:
-                logger.info(f"Successfully subscribed to channel {channel_id}")
+                logger.info(
+                    "Successfully subscribed to channel",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                    ),
+                )
                 return True
             elif response.status_code == 409:
                 logger.info(
-                    f"Channel {channel_id} already has an active subscription - treating as success"
+                    "Channel already has an active subscription - treating as success",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                    ),
                 )
                 return True
             else:
                 logger.error(
-                    f"Failed to subscribe to channel {channel_id}: {response.status_code} - {response.text}"
+                    "Failed to subscribe to channel",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                        meta_response_body=sanitize_label(response.text),
+                    ),
                 )
                 return False
 
         except httpx.TimeoutException:
-            logger.error(f"Timeout while subscribing to channel {channel_id} - treating as success")
+            logger.error(
+                "Timeout while subscribing to channel - treating as success",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                ),
+            )
             return True
         except httpx.HTTPError as e:
-            logger.error(f"HTTP error subscribing to channel {channel_id}: {e}")
+            logger.error(
+                "HTTP error subscribing to channel",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
             return False
         except Exception as e:
-            logger.error(f"Error subscribing to channel {channel_id}: {e}")
+            logger.error(
+                "Unexpected error subscribing to channel",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
             return False
 
     async def unsubscribe_from_channel(self, channel_id: str) -> bool:
         """Unsubscribe from YouTube channel updates."""
+        request_id = new_request_id()
+        operation = "pubsub.unsubscribe"
         try:
-            if self._short_circuit("unsubscribe", channel_id):
+            if self._short_circuit("unsubscribe", channel_id, request_id=request_id):
                 return True
 
             topic_url = self.get_topic_url(channel_id)
@@ -114,49 +174,123 @@ class PubSubManager:
             )
 
             if response.status_code == 204:
-                logger.info(f"Successfully unsubscribed from channel {channel_id}")
+                logger.info(
+                    "Successfully unsubscribed from channel",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                    ),
+                )
                 return True
             elif response.status_code == 404:
-                logger.info(f"Channel {channel_id} subscription not found - treating as success")
+                logger.info(
+                    "Channel subscription not found - treating as success",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                    ),
+                )
                 return True
             elif response.status_code == 409:
                 logger.info(
-                    "Channel %s unsubscription could not be verified (HTTP 409) - treating as success",
-                    channel_id,
+                    "Unsubscription could not be verified (HTTP 409) - treating as success",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                    ),
                 )
                 return True
             else:
                 logger.error(
-                    f"Failed to unsubscribe from channel {channel_id}: {response.status_code} - {response.text}"
+                    "Failed to unsubscribe from channel",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                        meta_response_body=sanitize_label(response.text),
+                    ),
                 )
                 return False
 
         except httpx.TimeoutException:
             logger.error(
-                f"Timeout while unsubscribing from channel {channel_id} - treating as success"
+                "Timeout while unsubscribing from channel - treating as success",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                ),
             )
             return True
         except httpx.HTTPError as e:
-            logger.error(f"HTTP error unsubscribing from channel {channel_id}: {e}")
+            logger.error(
+                "HTTP error unsubscribing from channel",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
             return False
         except Exception as e:
-            logger.error(f"Error unsubscribing from channel {channel_id}: {e}")
+            logger.error(
+                "Unexpected error unsubscribing from channel",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
             return False
 
     async def verify_subscription(self, channel_id: str) -> str | None:
         """Verify if subscription is active by checking the topic."""
+        request_id = new_request_id()
+        operation = "pubsub.verify"
         try:
             topic_url = self.get_topic_url(channel_id)
             response = await self.client.get(topic_url, timeout=10.0)
 
             if response.status_code == 200:
+                logger.debug(
+                    "Verified channel subscription via topic feed",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                    ),
+                )
                 return response.text
             else:
                 logger.warning(
-                    f"Could not verify subscription for channel {channel_id}: {response.status_code}"
+                    "Could not verify subscription via topic feed",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        channel_id=channel_id,
+                        meta_status_code=response.status_code,
+                    ),
                 )
                 return None
 
         except Exception as e:
-            logger.error(f"Error verifying subscription for channel {channel_id}: {e}")
+            logger.error(
+                "Error verifying subscription via topic feed",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    channel_id=channel_id,
+                    meta_error=sanitize_label(str(e)),
+                ),
+            )
             return None

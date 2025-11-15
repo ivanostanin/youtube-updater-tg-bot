@@ -1,13 +1,12 @@
-import logging
-
 from telegram import Bot
 from telegram.error import TelegramError
 
 from ..database.models import Video, YouTubeChannel
 from ..utils.formatters import format_group_discussion_prompt
+from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class NotificationService:
@@ -24,8 +23,10 @@ class NotificationService:
         *,
         chat_title: str | None,
         chat_type: str,
+        request_id: str | None = None,
     ) -> int | None:
         """Send a video notification to a chat."""
+        correlation_id = request_id or new_request_id()
         try:
             message = self.format_video_message(
                 video,
@@ -41,14 +42,49 @@ class NotificationService:
                 disable_web_page_preview=False,
             )
 
-            logger.info(f"Sent video notification to chat {chat_telegram_id} ({chat_type}): {video.title}")
+            logger.info(
+                "Sent video notification",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation="notification.send_video",
+                    chat_id=chat_telegram_id,
+                    chat_type=chat_type,
+                    video_id=video.video_id,
+                    channel_id=channel.channel_id,
+                    meta_chat_title=sanitize_label(chat_title),
+                    meta_video_title=sanitize_label(video.title),
+                    meta_channel_title=sanitize_label(channel.channel_name),
+                ),
+            )
             return sent_message.message_id
 
         except TelegramError as error:
-            logger.error(f"Telegram error sending notification to chat {chat_telegram_id}: {error}")
+            logger.error(
+                "Telegram error sending video notification",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation="notification.send_video",
+                    chat_id=chat_telegram_id,
+                    chat_type=chat_type,
+                    video_id=video.video_id,
+                    channel_id=channel.channel_id,
+                    meta_error=sanitize_label(str(error)),
+                ),
+            )
             return None
         except Exception as error:
-            logger.error(f"Unexpected error sending notification to chat {chat_telegram_id}: {error}")
+            logger.error(
+                "Unexpected error sending video notification",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation="notification.send_video",
+                    chat_id=chat_telegram_id,
+                    chat_type=chat_type,
+                    video_id=video.video_id,
+                    channel_id=channel.channel_id,
+                    meta_error=sanitize_label(str(error)),
+                ),
+            )
             return None
 
     def format_video_message(
@@ -100,8 +136,10 @@ class NotificationService:
         *,
         chat_title: str | None,
         chat_type: str,
+        request_id: str | None = None,
     ) -> int | None:
         """Send subscription confirmation message."""
+        correlation_id = request_id or new_request_id()
         try:
             if chat_type == "private":
                 intro = "✅ **Subscription Confirmed!**"
@@ -127,16 +165,43 @@ class NotificationService:
                 disable_web_page_preview=True,
             )
 
+            logger.info(
+                "Sent subscription confirmation",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation="notification.send_subscription_confirmation",
+                    chat_id=chat_telegram_id,
+                    chat_type=chat_type,
+                    channel_id=channel.channel_id,
+                    meta_chat_title=sanitize_label(chat_title),
+                    meta_channel_title=sanitize_label(channel.channel_name),
+                ),
+            )
             return sent_message.message_id
 
         except TelegramError as error:
-            logger.error(f"Error sending subscription confirmation to chat {chat_telegram_id}: {error}")
+            logger.error(
+                "Error sending subscription confirmation",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation="notification.send_subscription_confirmation",
+                    chat_id=chat_telegram_id,
+                    chat_type=chat_type,
+                    channel_id=channel.channel_id,
+                    meta_error=sanitize_label(str(error)),
+                ),
+            )
             return None
 
     async def send_error_notification(
-        self, chat_telegram_id: str, error_message: str
+        self,
+        chat_telegram_id: str,
+        error_message: str,
+        *,
+        request_id: str | None = None,
     ) -> int | None:
         """Send error notification to chat."""
+        correlation_id = request_id or new_request_id()
         try:
             message = f"❌ **Error:** {error_message}"
 
@@ -146,8 +211,27 @@ class NotificationService:
                 parse_mode="Markdown",
             )
 
+            logger.info(
+                "Sent error notification",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation="notification.send_error",
+                    chat_id=chat_telegram_id,
+                    meta_error_message=sanitize_label(error_message),
+                ),
+            )
             return sent_message.message_id
 
         except TelegramError as error:
-            logger.error(f"Error sending error notification to chat {chat_telegram_id}: {error}")
+            logger.error(
+                "Error sending error notification",
+                extra=log_context(
+                    request_id=correlation_id,
+                    operation="notification.send_error",
+                    chat_id=chat_telegram_id,
+                    chat_type=None,
+                    meta_error_message=sanitize_label(error_message),
+                    meta_error=sanitize_label(str(error)),
+                ),
+            )
             return None

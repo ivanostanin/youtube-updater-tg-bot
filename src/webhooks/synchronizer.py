@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 
 import sqlalchemy as sa
@@ -9,10 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..database.models import Subscription, YouTubeChannel
 from ..utils.config import settings
+from ..utils.logging import get_logger, log_context, new_request_id
 from .pubsub import PubSubManager
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -35,6 +35,8 @@ class WebhookSubscriptionSynchronizer:
 
     async def run(self) -> None:
         """Synchronize PubSub subscriptions with the configured webhook URL."""
+        request_id = new_request_id()
+        operation = "webhook.sync.run"
         async with self._session_factory() as session:
             channels = await self._load_active_channels(session)
             to_refresh = [
@@ -44,13 +46,24 @@ class WebhookSubscriptionSynchronizer:
             ]
 
             if not to_refresh:
-                logger.info("Webhook synchronizer: all active subscriptions already use %s", self._current_webhook)
+                logger.info(
+                    "Webhook synchronizer: no channels require refresh",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        meta_current_webhook=self._current_webhook,
+                    ),
+                )
                 return
 
             logger.info(
-                "Webhook synchronizer: refreshing %d channel subscription(s) to %s",
-                len(to_refresh),
-                self._current_webhook,
+                "Webhook synchronizer refreshing channels",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    meta_refresh_count=len(to_refresh),
+                    meta_current_webhook=self._current_webhook,
+                ),
             )
 
             new_manager = PubSubManager(self._current_webhook)
@@ -58,7 +71,13 @@ class WebhookSubscriptionSynchronizer:
 
             try:
                 for channel in to_refresh:
-                    await self._refresh_channel(session, channel, legacy_managers, new_manager)
+                    await self._refresh_channel(
+                        session,
+                        channel,
+                        legacy_managers,
+                        new_manager,
+                        request_id=request_id,
+                    )
             finally:
                 await new_manager.close()
                 for manager in legacy_managers.values():
@@ -97,6 +116,8 @@ class WebhookSubscriptionSynchronizer:
         channel: ChannelSubscriptionState,
         legacy_managers: dict[str, PubSubManager],
         new_manager: PubSubManager,
+        *,
+        request_id: str,
     ) -> None:
         """Unsubscribe from the old callback and subscribe with the new callback."""
         previous_webhook = self._effective_webhook(channel)
@@ -104,10 +125,14 @@ class WebhookSubscriptionSynchronizer:
             return
 
         logger.info(
-            "Refreshing webhook for channel %s (previous=%s, new=%s)",
-            channel.channel_id,
-            previous_webhook,
-            self._current_webhook,
+            "Refreshing webhook for channel",
+            extra=log_context(
+                request_id=request_id,
+                operation="webhook.sync.refresh_channel",
+                channel_id=channel.channel_id,
+                meta_previous_webhook=previous_webhook,
+                meta_new_webhook=self._current_webhook,
+            ),
         )
 
         legacy_manager = legacy_managers.get(previous_webhook)
@@ -118,17 +143,25 @@ class WebhookSubscriptionSynchronizer:
         unsubscribe_ok = await legacy_manager.unsubscribe_from_channel(channel.channel_id)
         if not unsubscribe_ok:
             logger.warning(
-                "Failed to unsubscribe channel %s from legacy webhook %s; continuing",
-                channel.channel_id,
-                previous_webhook,
+                "Failed to unsubscribe channel from legacy webhook; continuing",
+                extra=log_context(
+                    request_id=request_id,
+                    operation="webhook.sync.refresh_channel",
+                    channel_id=channel.channel_id,
+                    meta_previous_webhook=previous_webhook,
+                ),
             )
 
         subscribe_ok = await new_manager.subscribe_to_channel(channel.channel_id)
         if not subscribe_ok:
             logger.error(
-                "Failed to subscribe channel %s to new webhook %s",
-                channel.channel_id,
-                self._current_webhook,
+                "Failed to subscribe channel to new webhook",
+                extra=log_context(
+                    request_id=request_id,
+                    operation="webhook.sync.refresh_channel",
+                    channel_id=channel.channel_id,
+                    meta_new_webhook=self._current_webhook,
+                ),
             )
             return
 
@@ -140,4 +173,12 @@ class WebhookSubscriptionSynchronizer:
             .values(webhook_url=self._current_webhook)
         )
         await session.commit()
-        logger.info("Channel %s now tracks webhook %s", channel.channel_id, self._current_webhook)
+        logger.info(
+            "Channel webhook updated",
+            extra=log_context(
+                request_id=request_id,
+                operation="webhook.sync.refresh_channel",
+                channel_id=channel.channel_id,
+                meta_new_webhook=self._current_webhook,
+            ),
+        )

@@ -307,3 +307,11 @@ uv pip install youtube-updater-tg-bot
 - Focus on async/await patterns for HTTP and database operations
 - Comprehensive logging throughout the application
 - Pre-commit hooks available for code quality enforcement
+
+### Debug Logging Blueprint
+
+- **Context Keys:** Every debug log should include, when available, `chat_id`, `chat_type`, `user_id`, `channel_id`, `subscription_id`, `video_id`, `operation`, and `request_id`. Additional metadata may be appended using the `meta_*` prefix (e.g., `meta_chat_title`).
+- **Redaction & Formatting:** Never emit Telegram tokens, access keys, or raw message bodies. Sanitize display names by trimming whitespace and truncating to 60 characters, dropping empty values entirely.
+- **Shared Helper:** Use `src/utils/logging.py`’s helper functions (`get_logger`, `bind_logger`, `log_context`, `new_request_id`) instead of manual string interpolation so the standardized context is injected consistently.
+- **Enabling Debug Output:** Set `LOG_LEVEL=DEBUG` in `.env` (or export it in your shell) before running the bot to enable the extra instrumentation locally; production defaults to `INFO`.
+- **Playbook:** When debugging, enable DEBUG logs, reproduce the flow, and follow the `request_id` through handlers, repositories, webhooks, and notification services to correlate every step of the pipeline.
