@@ -212,6 +212,7 @@ persistence:
   accessMode: ReadWriteOnce
   size: 1Gi
   mountPath: /app/data
+  subPath: ""
   # Annotations for PVC
   annotations: {}
 
