@@ -21,6 +21,8 @@ handlers:
       /subscribe <URL> - Subscribe to a YouTube channel/video/playlist
       /list - Show your active subscriptions
       /unsubscribe - Remove subscriptions
+      /channel_link <@channel> - Link a broadcast channel from a DM
+      /channel_select - Switch the active channel context in DMs
       /language - Select your preferred language
       /help - Show this help
 
@@ -69,12 +71,52 @@ handlers:
         ⚠️ Subscribed to **{channel_name}** but couldn't set up real-time notifications.
 
         You may experience delays in notifications.
+  channel_link:
+    private_only: "Run /channel_link inside a private DM with the bot."
+    missing_identifier: |-
+      Provide the channel @username or t.me link.
+      Example: /channel_link @examplechannel
+    invalid_identifier: "I couldn't parse that channel reference. Use a public @username or numeric chat ID."
+    bot_unavailable: "Telegram bot client isn't ready yet. Please try again in a few seconds."
+    lookup_failed: "I couldn't load that channel. Double-check the username or invite link."
+    invalid_type: "That chat isn't a broadcast channel. Run /channel_link with a channel username or ID."
+    permission_check_failed: "I couldn't verify your admin rights right now. Please retry in a moment."
+    admin_only: "Only channel administrators can link {channel_title}."
+    bot_missing_permissions: "I need to be an admin with: {missing_permissions}. Update the channel permissions and try again."
+    success: |-
+      ✅ {channel_title} is linked.
+
+      DM commands will target this channel for the next {ttl_minutes} minutes. Use /channel_select to switch at any time.
+    permission_labels:
+      can_post_messages: "Can post messages"
+      can_delete_messages: "Can delete messages"
+      can_edit_messages: "Can edit messages"
+  channel_select:
+    private_only: "Use /channel_select from a private DM with the bot."
+    none_linked: "No channels are linked yet. Run /channel_link first."
+    prompt: |-
+      Pick which channel this DM should control.
+      The selection lasts {ttl_minutes} minutes or until you switch.
+    clear_button: "Use this DM"
+    cleared: "Channel selection cleared. Commands now apply to this DM."
+    unknown_action: "I didn't understand that selection. Please open /channel_select again."
+    invalid_payload: "Unable to parse the selected channel."
+    channel_missing: "That channel record no longer exists. Link it again with /channel_link."
+    link_missing: "You're no longer linked to that channel. Run /channel_link to relink it."
+    revoked: "Telegram reports you're no longer an administrator, so access was revoked."
+    bot_missing_permissions: "I'm missing required channel permissions ({missing_permissions}). Grant the rights and retry."
+    selected: "Now targeting {channel_title}. Commands in this DM will apply there until you change it."
+  channel_context:
+    target_notice: "🎯 Channel context: {channel_title}"
+    expired: "The active channel selection expired. Run /channel_select to choose a channel again."
   list:
     no_subscriptions: "You don't have any subscriptions yet."
     no_active_subscriptions: "You don't have any active subscriptions."
+    no_active_subscriptions_channel: "{channel_title} doesn't have any active subscriptions yet."
   unsubscribe:
     no_subscriptions: "You don't have any subscriptions to remove."
     no_active_subscriptions: "You don't have any active subscriptions."
+    no_active_subscriptions_channel: "{channel_title} doesn't have any subscriptions to remove."
     cancel_button: "Cancel"
     select_prompt: "Select a subscription to remove:"
     callback:

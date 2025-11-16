@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -22,6 +22,11 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     chats: Mapped[list[Chat]] = relationship("Chat", back_populates="user")
+    channel_admin_links: Mapped[list[ChannelAdminLink]] = relationship(
+        "ChannelAdminLink",
+        back_populates="admin",
+        cascade="all, delete-orphan",
+    )
 
 
 class Chat(Base):
@@ -35,6 +40,15 @@ class Chat(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    active_channel_chat_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("chats.id"), nullable=True
+    )
+    active_channel_selected_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    active_channel_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
 
     user: Mapped[User | None] = relationship("User", back_populates="chats")
     subscriptions: Mapped[list[Subscription]] = relationship(
@@ -42,6 +56,18 @@ class Chat(Base):
     )
     notifications: Mapped[list[Notification]] = relationship(
         "Notification", back_populates="chat", cascade="all, delete-orphan"
+    )
+    active_channel: Mapped[Chat | None] = relationship(
+        "Chat",
+        remote_side="Chat.id",
+        uselist=False,
+        foreign_keys=[active_channel_chat_id],
+    )
+    linked_admins: Mapped[list[ChannelAdminLink]] = relationship(
+        "ChannelAdminLink",
+        back_populates="channel",
+        cascade="all, delete-orphan",
+        foreign_keys="ChannelAdminLink.channel_chat_id",
     )
 
 
@@ -118,3 +144,25 @@ class Notification(Base):
 
     chat: Mapped[Chat] = relationship("Chat", back_populates="notifications")
     video: Mapped[Video] = relationship("Video", back_populates="notifications")
+
+
+class ChannelAdminLink(Base):
+    __tablename__ = "channel_admin_links"
+    __table_args__ = (
+        UniqueConstraint("channel_chat_id", "admin_user_id", name="uq_channel_admin_link"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    channel_chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
+    admin_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    linked_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    channel: Mapped[Chat | None] = relationship(
+        "Chat",
+        back_populates="linked_admins",
+        foreign_keys=[channel_chat_id],
+    )
+    admin: Mapped[User] = relationship("User", back_populates="channel_admin_links")

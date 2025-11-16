@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy import select
@@ -11,10 +11,23 @@ from sqlalchemy.orm import selectinload
 
 from ..utils.locale_codes import SUPPORTED_LOCALES, normalize_locale_code
 from ..utils.logging import get_logger, log_context, new_request_id
-from .models import Chat, Notification, Subscription, User, Video, YouTubeChannel
+from .models import (
+    ChannelAdminLink,
+    Chat,
+    Notification,
+    Subscription,
+    User,
+    Video,
+    YouTubeChannel,
+)
 
 
 logger = get_logger(__name__)
+
+
+def _utcnow() -> datetime:
+    """Return a timezone-naive UTC timestamp compatible with SQLite columns."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 @dataclass(slots=True)
@@ -153,6 +166,213 @@ class ChatRepository:
         await self.session.commit()
         await self.session.refresh(chat)
         return chat
+
+    async def set_active_channel(
+        self,
+        *,
+        chat: Chat,
+        channel_chat: Chat,
+        ttl_seconds: int | None = None,
+    ) -> Chat:
+        """Persist the active channel context for a private chat."""
+        now = _utcnow()
+        chat.active_channel_chat_id = channel_chat.id
+        chat.active_channel_selected_at = now
+        chat.active_channel_expires_at = (
+            now + timedelta(seconds=ttl_seconds) if ttl_seconds else None
+        )
+        await self.session.commit()
+        await self.session.refresh(chat)
+        return chat
+
+    async def clear_active_channel(self, chat: Chat) -> Chat:
+        """Clear any channel context stored on the chat."""
+        if (
+            chat.active_channel_chat_id is None
+            and chat.active_channel_selected_at is None
+            and chat.active_channel_expires_at is None
+        ):
+            return chat
+        chat.active_channel_chat_id = None
+        chat.active_channel_selected_at = None
+        chat.active_channel_expires_at = None
+        await self.session.commit()
+        await self.session.refresh(chat)
+        return chat
+
+    async def maybe_clear_expired_channel_context(
+        self,
+        chat: Chat,
+        *,
+        now: datetime | None = None,
+    ) -> Chat:
+        """Clear channel context if the TTL has expired."""
+        if chat.active_channel_expires_at is None:
+            return chat
+        current = now or _utcnow()
+        if chat.active_channel_expires_at > current:
+            return chat
+        return await self.clear_active_channel(chat)
+
+    async def get_active_channel_chat(self, chat: Chat) -> Chat | None:
+        """Return the Chat referenced by the current active channel context."""
+        if chat.active_channel_chat_id is None:
+            return None
+        return await self.get_chat(chat.active_channel_chat_id)
+
+
+class ChannelAdminLinkRepository:
+    def __init__(self, session: AsyncSession):
+        self.session = session
+
+    async def upsert_link(
+        self,
+        *,
+        channel_chat_id: int,
+        admin_user_id: int,
+        role: str,
+        last_verified_at: datetime | None = None,
+        request_id: str | None = None,
+    ) -> ChannelAdminLink:
+        """Insert or reactivate a channel-admin link."""
+        correlation_id = request_id or new_request_id()
+        stmt = select(ChannelAdminLink).where(
+            ChannelAdminLink.channel_chat_id == channel_chat_id,
+            ChannelAdminLink.admin_user_id == admin_user_id,
+        )
+        result = await self.session.execute(stmt)
+        link = result.scalar_one_or_none()
+        now = _utcnow()
+        verification_ts = last_verified_at or now
+
+        if link:
+            link.role = role
+            link.revoked_at = None
+            link.last_verified_at = verification_ts
+            await self.session.commit()
+            await self.session.refresh(link)
+            _repo_log(
+                logging.INFO,
+                "Reactivated channel admin link",
+                request_id=correlation_id,
+                operation="repository.channel_admin_link.upsert",
+                chat_id=channel_chat_id,
+                extra={"meta_admin_user_id": admin_user_id, "meta_role": role},
+            )
+            return link
+
+        link = ChannelAdminLink(
+            channel_chat_id=channel_chat_id,
+            admin_user_id=admin_user_id,
+            role=role,
+            linked_at=now,
+            last_verified_at=verification_ts,
+        )
+        self.session.add(link)
+        await self.session.commit()
+        await self.session.refresh(link)
+        _repo_log(
+            logging.INFO,
+            "Created channel admin link",
+            request_id=correlation_id,
+            operation="repository.channel_admin_link.upsert",
+            chat_id=channel_chat_id,
+            extra={"meta_admin_user_id": admin_user_id, "meta_role": role},
+        )
+        return link
+
+    async def mark_revoked(
+        self,
+        *,
+        channel_chat_id: int,
+        admin_user_id: int,
+        request_id: str | None = None,
+    ) -> ChannelAdminLink | None:
+        """Mark a channel-admin link as revoked."""
+        correlation_id = request_id or new_request_id()
+        stmt = select(ChannelAdminLink).where(
+            ChannelAdminLink.channel_chat_id == channel_chat_id,
+            ChannelAdminLink.admin_user_id == admin_user_id,
+        )
+        result = await self.session.execute(stmt)
+        link = result.scalar_one_or_none()
+        if link is None:
+            _repo_log(
+                logging.WARNING,
+                "Attempted to revoke missing channel admin link",
+                request_id=correlation_id,
+                operation="repository.channel_admin_link.revoke",
+                chat_id=channel_chat_id,
+                extra={"meta_admin_user_id": admin_user_id},
+            )
+            return None
+
+        link.revoked_at = _utcnow()
+        await self.session.commit()
+        await self.session.refresh(link)
+        _repo_log(
+            logging.INFO,
+            "Revoked channel admin link",
+            request_id=correlation_id,
+            operation="repository.channel_admin_link.revoke",
+            chat_id=channel_chat_id,
+            extra={"meta_admin_user_id": admin_user_id},
+        )
+        return link
+
+    async def get_active_link(
+        self,
+        *,
+        channel_chat_id: int,
+        admin_user_id: int,
+        request_id: str | None = None,
+    ) -> ChannelAdminLink | None:
+        """Return the active link for the provided channel/admin pair."""
+        correlation_id = request_id or new_request_id()
+        stmt = select(ChannelAdminLink).where(
+            ChannelAdminLink.channel_chat_id == channel_chat_id,
+            ChannelAdminLink.admin_user_id == admin_user_id,
+            ChannelAdminLink.revoked_at.is_(None),
+        )
+        result = await self.session.execute(stmt)
+        link = result.scalar_one_or_none()
+        _repo_log(
+            logging.DEBUG,
+            "Fetched channel admin link",
+            request_id=correlation_id,
+            operation="repository.channel_admin_link.get_active",
+            chat_id=channel_chat_id,
+            extra={"meta_admin_user_id": admin_user_id, "meta_found": bool(link)},
+        )
+        return link
+
+    async def list_active_links_for_user(
+        self,
+        admin_user_id: int,
+        *,
+        request_id: str | None = None,
+    ) -> list[ChannelAdminLink]:
+        """Return all active channel links for the specified admin."""
+        correlation_id = request_id or new_request_id()
+        stmt = (
+            select(ChannelAdminLink)
+            .where(
+                ChannelAdminLink.admin_user_id == admin_user_id,
+                ChannelAdminLink.revoked_at.is_(None),
+            )
+            .options(selectinload(ChannelAdminLink.channel))
+            .order_by(ChannelAdminLink.linked_at.desc(), ChannelAdminLink.id.desc())
+        )
+        result = await self.session.execute(stmt)
+        links = list(result.scalars().all())
+        _repo_log(
+            logging.DEBUG,
+            "Listed active channel links for admin",
+            request_id=correlation_id,
+            operation="repository.channel_admin_link.list_active",
+            extra={"meta_admin_user_id": admin_user_id, "meta_link_count": len(links)},
+        )
+        return links
 
 
 class ChannelRepository:

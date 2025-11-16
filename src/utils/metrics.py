@@ -21,6 +21,18 @@ WEBHOOK_LEASE_REFRESH_TOTAL = Counter(
     ("result",),
 )
 
+# Channel linking/selection metrics to observe DM onboarding health.
+CHANNEL_LINK_TOTAL = Counter(
+    "channel_link_total",
+    "Channel linking attempts grouped by outcome (success, denied, bot_missing, error).",
+    ("result",),
+)
+CHANNEL_SELECTION_TOTAL = Counter(
+    "channel_selection_total",
+    "DM channel selection attempts grouped by outcome (selected, cleared, denied, expired, error).",
+    ("result",),
+)
+
 
 def _normalize_mode(mode: str | None) -> str:
     normalized = (mode or "").strip().lower()
@@ -40,7 +52,19 @@ def record_lease_refresh(result: str) -> None:
     WEBHOOK_LEASE_REFRESH_TOTAL.labels(result=result).inc()
 
 
+def record_channel_link(result: str) -> None:
+    """Increment the link counter for the provided outcome."""
+    CHANNEL_LINK_TOTAL.labels(result=result).inc()
+
+
+def record_channel_selection(result: str) -> None:
+    """Increment the channel selection counter for the provided outcome."""
+    CHANNEL_SELECTION_TOTAL.labels(result=result).inc()
+
+
 def reset_pubsub_metrics() -> None:
     """Clear recorded label values for deterministic tests."""
     WEBHOOK_VERIFICATION_CHALLENGES.clear()
     WEBHOOK_LEASE_REFRESH_TOTAL.clear()
+    CHANNEL_LINK_TOTAL.clear()
+    CHANNEL_SELECTION_TOTAL.clear()

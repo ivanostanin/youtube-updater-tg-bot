@@ -36,6 +36,10 @@ class Settings(BaseSettings):
         default=50,
         description="Maximum number of channels to renew per cycle (None for unlimited)",
     )
+    dm_channel_context_ttl_minutes: int = Field(
+        default=60,
+        description="Minutes a DM channel selection remains active before expiring",
+    )
 
     @field_validator("webhook_callback_url")
     @classmethod
@@ -76,6 +80,13 @@ class Settings(BaseSettings):
             return None
         if value <= 0:
             raise ValueError("Lease renewal batch limit must be positive when provided.")
+        return value
+
+    @field_validator("dm_channel_context_ttl_minutes", mode="after")
+    @classmethod
+    def validate_channel_context_ttl(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("DM channel context TTL must be a positive number of minutes.")
         return value
 
 

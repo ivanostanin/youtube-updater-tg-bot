@@ -21,6 +21,8 @@ handlers:
       /subscribe <URL> – YouTube-Kanal/Video/Playlist abonnieren
       /list – Aktive Abonnements anzeigen
       /unsubscribe – Abonnement entfernen
+      /channel_link <@channel> – Kanal per DM verknüpfen
+      /channel_select – Aktiven Kanal im DM wählen
       /language – Sprache wählen
       /help – Hilfe anzeigen
 
@@ -69,12 +71,52 @@ handlers:
         ⚠️ **{channel_name}** wurde abonniert, aber Echtzeit-Benachrichtigungen konnten nicht aktiviert werden.
 
         Benachrichtigungen können verzögert eintreffen.
+  channel_link:
+    private_only: "Führe /channel_link in einem privaten Chat mit dem Bot aus."
+    missing_identifier: |-
+      Gib den @Benutzernamen oder den t.me-Link des Kanals an.
+      Beispiel: /channel_link @examplechannel
+    invalid_identifier: "Die Kanalreferenz konnte nicht erkannt werden. Verwende einen öffentlichen @Benutzernamen oder eine numerische ID."
+    bot_unavailable: "Der Telegram-Client des Bots ist noch nicht bereit. Bitte in wenigen Sekunden erneut versuchen."
+    lookup_failed: "Der Kanal konnte nicht geladen werden. Bitte Benutzername oder Link prüfen."
+    invalid_type: "Dieser Chat ist kein Kanal. Verwende einen echten Kanal."
+    permission_check_failed: "Deine Admin-Rechte konnten nicht geprüft werden. Bitte später erneut versuchen."
+    admin_only: "Nur Kanal-Administratoren können {channel_title} verknüpfen."
+    bot_missing_permissions: "Der Bot benötigt folgende Rechte: {missing_permissions}. Rechte vergeben und erneut versuchen."
+    success: |-
+      ✅ {channel_title} wurde verknüpft.
+
+      DM-Befehle steuern diesen Kanal {ttl_minutes} Minuten lang. Mit /channel_select kannst du jederzeit wechseln.
+    permission_labels:
+      can_post_messages: "Nachrichten senden"
+      can_delete_messages: "Nachrichten löschen"
+      can_edit_messages: "Nachrichten bearbeiten"
+  channel_select:
+    private_only: "Nutze /channel_select in einem privaten Chat mit dem Bot."
+    none_linked: "Es sind noch keine Kanäle verknüpft. Verwende zuerst /channel_link."
+    prompt: |-
+      Wähle, welcher Kanal über diesen DM gesteuert werden soll.
+      Die Auswahl gilt {ttl_minutes} Minuten oder bis du sie änderst.
+    clear_button: "Diesen DM nutzen"
+    cleared: "Kanalauswahl zurückgesetzt. Befehle gelten wieder für diesen DM."
+    unknown_action: "Unbekannte Auswahl. Öffne /channel_select erneut."
+    invalid_payload: "Der ausgewählte Kanal konnte nicht gelesen werden."
+    channel_missing: "Dieser Kanal-Datensatz existiert nicht mehr. Bitte erneut verknüpfen."
+    link_missing: "Die Verbindung zu diesem Kanal ist abgelaufen. Bitte /channel_link erneut ausführen."
+    revoked: "Laut Telegram bist du kein Administrator mehr, daher wurde der Zugriff entzogen."
+    bot_missing_permissions: "Dem Bot fehlen erforderliche Kanalrechte ({missing_permissions}). Vergib die Rechte und versuche es erneut."
+    selected: "{channel_title} ist jetzt aktiv. Befehle gelten dafür, bis du wechselst."
+  channel_context:
+    target_notice: "🎯 Aktiver Kanal: {channel_title}"
+    expired: "Die Kanalauswahl ist abgelaufen. Nutze /channel_select für eine neue Auswahl."
   list:
     no_subscriptions: "Du hast noch keine Abonnements."
     no_active_subscriptions: "Keine aktiven Abonnements gefunden."
+    no_active_subscriptions_channel: "{channel_title} hat derzeit keine aktiven Abonnements."
   unsubscribe:
     no_subscriptions: "In diesem Chat gibt es keine Abonnements zum Entfernen."
     no_active_subscriptions: "Keine aktiven Abonnements vorhanden."
+    no_active_subscriptions_channel: "{channel_title} hat keine Abonnements zum Entfernen."
     cancel_button: "Abbrechen"
     select_prompt: "Wähle ein Abonnement zum Entfernen:"
     callback:

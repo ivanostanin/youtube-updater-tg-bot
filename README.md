@@ -11,6 +11,7 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 - Manage subscriptions with simple commands
 - Multilingual responses (English, Russian, German) with per-chat `/language` control
 - Support for various YouTube URL formats
+- Link Telegram broadcast channels and manage their subscriptions privately via DMs
 - Webhook-based real-time notifications via PubSubHubbub
 
 ## Quick Start
@@ -44,6 +45,8 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 - `/subscribe <YouTube URL>` - Subscribe to a channel/video/playlist
 - `/list` - Show your active subscriptions
 - `/unsubscribe` - Remove subscriptions
+- `/channel_link <@channel>` - Link a broadcast channel from a DM
+- `/channel_select` - Pick the active channel context for DM commands
 - `/language` - Select your preferred language for this chat
 - `/help` - Show available commands
 
@@ -70,6 +73,7 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 | `PUBSUB_LEASE_RENEWAL_INTERVAL` | Seconds between lease renewal scans | `3600` |
 | `PUBSUB_LEASE_RENEWAL_THRESHOLD` | Renew leases that expire within this window (seconds) | `21600` |
 | `PUBSUB_LEASE_RENEWAL_BATCH_LIMIT` | Max channels processed per renewal run (`None` for unlimited) | `50` |
+| `DM_CHANNEL_CONTEXT_TTL_MINUTES` | Minutes a DM channel selection remains active before expiring | `60` |
 
 Telegram supplies `language_code` values like `en-US` or `es`. These are normalized to one of the supported catalogs (`en`, `ru`, `de`) and any unsupported code gracefully falls back to `DEFAULT_LOCALE`. Chat administrators can always run `/language` to pick English, Русский, or Deutsch via the inline selector if they want to override the automatic choice.
 

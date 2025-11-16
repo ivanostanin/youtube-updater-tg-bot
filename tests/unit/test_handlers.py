@@ -13,7 +13,7 @@ from sqlalchemy import select
 from telegram import CallbackQuery, InlineKeyboardMarkup
 
 from src.bot.handlers import BotHandlers
-from src.database.models import Chat, Subscription, User, YouTubeChannel
+from src.database.models import ChannelAdminLink, Chat, Subscription, User, YouTubeChannel
 from src.database.repository import UserRepository
 from src.utils.config import settings
 
@@ -810,6 +810,117 @@ async def test_subscribe_sets_channel_webhook(
     subscription_rows = await async_db_session.execute(select(Subscription))
     subscription = subscription_rows.scalar_one()
     assert subscription.webhook_url == settings.webhook_callback_url
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Linking")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_channel_link_command_links_channel(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Ensure /channel_link persists channel-admin metadata and activates context."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_context.args = ["@examplechannel"]
+
+    channel_chat = MagicMock()
+    channel_chat.id = -100987654321
+    channel_chat.type = "channel"
+    channel_chat.title = "Example Channel"
+    channel_chat.username = "examplechannel"
+
+    admin_member = MagicMock()
+    admin_member.status = "administrator"
+    bot_member = MagicMock()
+    bot_member.can_post_messages = True
+    bot_member.can_delete_messages = True
+    bot_member.can_edit_messages = True
+
+    mock_telegram_context.bot.get_chat = AsyncMock(return_value=channel_chat)
+    mock_telegram_context.bot.get_chat_member = AsyncMock(
+        side_effect=[admin_member, bot_member]
+    )
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
+
+    link_rows = await async_db_session.execute(select(ChannelAdminLink))
+    link = link_rows.scalar_one()
+    assert link.channel_chat_id is not None
+    assert link.admin_user_id is not None
+    assert link.revoked_at is None
+
+    chat_rows = await async_db_session.execute(select(Chat))
+    chats = chat_rows.scalars().all()
+    private_chat = next(chat for chat in chats if chat.chat_type == "private")
+    linked_channel = next(chat for chat in chats if chat.chat_type == "channel")
+
+    assert private_chat.active_channel_chat_id == linked_channel.id
+    reply_text = mock_telegram_update.message.reply_text.call_args.args[0]
+    assert "Example Channel" in reply_text
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Linking")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_dm_subscription_targets_channel_context(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Ensure DM subscriptions use the selected channel chat."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+
+    channel_chat = MagicMock()
+    channel_chat.id = -100111222333
+    channel_chat.type = "channel"
+    channel_chat.title = "DM Channel"
+    channel_chat.username = "dmchannel"
+    admin_member = MagicMock()
+    admin_member.status = "administrator"
+    bot_member = MagicMock()
+    bot_member.can_post_messages = True
+    bot_member.can_delete_messages = True
+    bot_member.can_edit_messages = True
+    mock_telegram_context.bot.get_chat = AsyncMock(return_value=channel_chat)
+    mock_telegram_context.bot.get_chat_member = AsyncMock(
+        side_effect=[admin_member, bot_member]
+    )
+
+    handlers.manage_channel_webhook = AsyncMock(return_value=True)
+    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=True)
+
+    mock_youtube_api.resolve_url = AsyncMock(
+        return_value={
+            "id": "UCtest999",
+            "title": "Test Channel",
+            "url": "https://youtube.com/channel/UCtest999",
+        }
+    )
+    mock_youtube_api.get_feed_url = MagicMock(
+        return_value="https://youtube.com/feeds/videos.xml?channel_id=UCtest999"
+    )
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        mock_telegram_context.args = ["@dmchannel"]
+        await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
+
+        mock_telegram_context.args = ["https://youtube.com/@testchannel"]
+        await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
+
+    subscription_rows = await async_db_session.execute(select(Subscription))
+    subscription = subscription_rows.scalar_one()
+    channel_chats = await async_db_session.execute(
+        select(Chat).where(Chat.chat_type == "channel")
+    )
+    channel_chat_row = channel_chats.scalars().first()
+    assert channel_chat_row is not None
+    assert subscription.chat_id == channel_chat_row.id
 
 
 @allure.feature("Bot Handlers")

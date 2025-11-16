@@ -1,6 +1,8 @@
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import (
@@ -17,6 +19,7 @@ from telegram import (
 from telegram import (
     User as TelegramUser,
 )
+from telegram.error import TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -27,15 +30,17 @@ from telegram.ext import (
 )
 
 from ..database.database import AsyncSessionLocal
+from ..database.models import ChannelAdminLink, Subscription, User
 from ..database.models import Chat as DBChat
-from ..database.models import Subscription, User
 from ..database.repository import (
+    ChannelAdminLinkRepository,
     ChannelRepository,
     ChatRepository,
     SubscriptionRepository,
     UserRepository,
 )
 from ..services import ACLService
+from ..utils import metrics
 from ..utils.config import settings
 from ..utils.formatters import format_subscription_list
 from ..utils.i18n import translate
@@ -46,6 +51,19 @@ from ..youtube.api import YouTubeAPI
 
 
 logger = get_logger(__name__)
+CHANNEL_CONTEXT_TTL_SECONDS = settings.dm_channel_context_ttl_minutes * 60
+
+
+@dataclass(slots=True)
+class CommandExecutionContext:
+    """Resolved context for commands that can target channel selections."""
+
+    db_user: User
+    actor_chat: DBChat
+    target_chat: DBChat
+    locale: str
+    channel_link: ChannelAdminLink | None = None
+    context_cleared: bool = False
 
 
 class BotHandlers:
@@ -170,6 +188,227 @@ class BotHandlers:
             locale=locale,
             request_id=request_id,
             current_language=current_language,
+        )
+
+    def _channel_context_notice(
+        self,
+        *,
+        target_chat: DBChat,
+        locale: str,
+        request_id: str,
+    ) -> str | None:
+        """Return a short banner describing the current channel context."""
+        if target_chat.chat_type != "channel":
+            return None
+        channel_title = target_chat.title or target_chat.chat_id
+        return self._translate(
+            "handlers.channel_context.target_notice",
+            locale=locale,
+            request_id=request_id,
+            channel_title=channel_title or "",
+        )
+
+    @staticmethod
+    def _normalize_channel_identifier(raw_value: str | None) -> str:
+        """Normalize usernames, invite URLs, or numeric IDs for Telegram API calls."""
+        if not raw_value:
+            return ""
+        text = raw_value.strip()
+        if not text:
+            return ""
+
+        lowered = text.lower()
+        if lowered.startswith(("http://", "https://")) and ("t.me/" in lowered or "telegram.me/" in lowered):
+            if "t.me/" in lowered:
+                text = text.split("t.me/", 1)[-1]
+            else:
+                text = text.split("telegram.me/", 1)[-1]
+        elif lowered.startswith(("http://", "https://")):
+            text = text.rsplit("/", 1)[-1]
+
+        text = text.split("?", 1)[0].strip("/")
+        if not text:
+            return ""
+        if text.startswith("@"):
+            return text
+        if text.replace("-", "").isdigit():
+            return text
+        return f"@{text}"
+
+    async def _verify_bot_permissions(
+        self,
+        *,
+        channel_chat_id: int | str,
+        locale: str,
+        request_id: str,
+    ) -> tuple[bool, list[str]]:
+        """Ensure the bot has the permissions required to post in the channel."""
+        if self.bot is None:
+            return False, ["missing_bot"]
+        try:
+            bot_member = await self.bot.get_chat_member(channel_chat_id, self.bot.id)
+        except TelegramError as exc:  # pragma: no cover - network dependent
+            self._error(
+                "Failed to verify bot permissions for channel",
+                request_id=request_id,
+                operation="channel_link.bot_permissions",
+                chat=None,
+                extra={"meta_error": sanitize_label(str(exc))},
+            )
+            return False, ["telegram_error"]
+
+        required_flags = {
+            "can_post_messages": "handlers.channel_link.permission_labels.can_post_messages",
+            "can_delete_messages": "handlers.channel_link.permission_labels.can_delete_messages",
+            "can_edit_messages": "handlers.channel_link.permission_labels.can_edit_messages",
+        }
+        missing: list[str] = [
+            label_key
+            for attr, label_key in required_flags.items()
+            if not getattr(bot_member, attr, False)
+        ]
+        return not missing, missing
+
+    async def _build_command_context(
+        self,
+        session: AsyncSession,
+        *,
+        db_user: User,
+        actor_chat: DBChat,
+        telegram_chat: TelegramChat,
+        locale_hint: str,
+        request_id: str,
+    ) -> CommandExecutionContext:
+        """Resolve whether the command should operate on the DM or a linked channel."""
+        chat_repo = ChatRepository(session)
+        link_repo = ChannelAdminLinkRepository(session)
+        locale = self._resolve_locale(
+            chat=actor_chat,
+            locale_hint=locale_hint,
+            telegram_chat=telegram_chat,
+        )
+        target_chat = actor_chat
+        channel_link: ChannelAdminLink | None = None
+        context_cleared = False
+        if getattr(telegram_chat, "type", "private") == "private":
+            actor_chat = await chat_repo.maybe_clear_expired_channel_context(actor_chat)
+            channel_chat = await chat_repo.get_active_channel_chat(actor_chat)
+            if channel_chat is not None:
+                link = await link_repo.get_active_link(
+                    channel_chat_id=channel_chat.id,
+                    admin_user_id=db_user.id,
+                    request_id=request_id,
+                )
+                if link is None:
+                    await chat_repo.clear_active_channel(actor_chat)
+                    context_cleared = True
+                else:
+                    target_chat = channel_chat
+                    channel_link = link
+
+        return CommandExecutionContext(
+            db_user=db_user,
+            actor_chat=actor_chat,
+            target_chat=target_chat,
+            locale=locale,
+            channel_link=channel_link,
+            context_cleared=context_cleared,
+        )
+
+    def _channel_selection_keyboard(
+        self,
+        *,
+        links: list[ChannelAdminLink],
+        actor_chat: DBChat,
+        locale: str,
+        request_id: str,
+    ) -> InlineKeyboardMarkup:
+        """Build the inline keyboard for channel selection."""
+        rows: list[list[InlineKeyboardButton]] = []
+        active_channel_id = actor_chat.active_channel_chat_id
+        for link in links:
+            channel = link.channel
+            if channel is None:
+                continue
+            label = channel.title or channel.chat_id
+            if channel.id == active_channel_id:
+                label = f"✅ {label}"
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        label,
+                        callback_data=f"chanselect::set::{channel.id}",
+                    )
+                ]
+            )
+
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    self._translate(
+                        "handlers.channel_select.clear_button",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    callback_data="chanselect::clear",
+                )
+            ]
+        )
+        return InlineKeyboardMarkup(rows)
+
+    def _format_missing_permissions(
+        self,
+        keys: list[str],
+        *,
+        locale: str,
+        request_id: str,
+    ) -> str:
+        """Translate permission label keys into a human readable list."""
+        labels = [
+            self._translate(key, locale=locale, request_id=request_id)
+            for key in keys
+        ]
+        return ", ".join(label for label in labels if label)
+
+    def _prepend_context_notice(
+        self,
+        text: str,
+        *,
+        target_chat: DBChat,
+        locale: str,
+        request_id: str,
+    ) -> str:
+        """Prefix command responses with the active channel notice when needed."""
+        notice = self._channel_context_notice(
+            target_chat=target_chat,
+            locale=locale,
+            request_id=request_id,
+        )
+        if notice:
+            return f"{notice}\n\n{text}"
+        return text
+
+    def _render_contextual_message(
+        self,
+        key: str,
+        *,
+        locale: str,
+        request_id: str,
+        target_chat: DBChat,
+        **params: Any,
+    ) -> str:
+        """Translate a key and prepend the channel context banner if needed."""
+        text = self._translate(
+            key,
+            locale=locale,
+            request_id=request_id,
+            **params,
+        )
+        return self._prepend_context_notice(
+            text,
+            target_chat=target_chat,
+            locale=locale,
+            request_id=request_id,
         )
 
     def _log(
@@ -470,6 +709,529 @@ class BotHandlers:
         )
         return result
 
+    async def channel_link_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Link a broadcast channel to the admin via DM."""
+        request_id = new_request_id()
+        user = update.effective_user
+        message = update.message
+        telegram_chat = update.effective_chat
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
+        locale = locale_hint
+        if user is None or message is None or telegram_chat is None:
+            self._warning(
+                "Received /channel_link without required context",
+                request_id=request_id,
+                operation="handler.channel_link",
+                chat=telegram_chat,
+                user=user,
+            )
+            return
+
+        if getattr(telegram_chat, "type", "private") != "private":
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.private_only",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
+            return
+
+        if not context.args:
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.missing_identifier",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
+            return
+
+        identifier = self._normalize_channel_identifier(context.args[0])
+        if not identifier:
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.invalid_identifier",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
+            return
+
+        if self.bot is None:
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.bot_unavailable",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
+            metrics.record_channel_link("error")
+            return
+
+        try:
+            channel_chat = cast(TelegramChat, await self.bot.get_chat(identifier))
+        except TelegramError as exc:
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.lookup_failed",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
+            self._warning(
+                "Failed to resolve channel for linking",
+                request_id=request_id,
+                operation="handler.channel_link",
+                user=user,
+                extra={"meta_error": sanitize_label(str(exc))},
+            )
+            metrics.record_channel_link("error")
+            return
+
+        if getattr(channel_chat, "type", None) != "channel":
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.invalid_type",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
+            metrics.record_channel_link("denied")
+            return
+
+        try:
+            admin_member = await self.bot.get_chat_member(channel_chat.id, user.id)
+        except TelegramError as exc:
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.permission_check_failed",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
+            self._error(
+                "Failed to verify user admin status for channel link",
+                request_id=request_id,
+                operation="handler.channel_link",
+                chat=channel_chat,
+                user=user,
+                extra={"meta_error": sanitize_label(str(exc))},
+            )
+            metrics.record_channel_link("error")
+            return
+
+        if admin_member.status not in {"administrator", "creator"}:
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.admin_only",
+                    locale=locale,
+                    request_id=request_id,
+                    channel_title=self._chat_display_name(channel_chat) or channel_chat.title or "",
+                )
+            )
+            metrics.record_channel_link("denied")
+            return
+
+        bot_ok, missing_perms = await self._verify_bot_permissions(
+            channel_chat_id=channel_chat.id,
+            locale=locale,
+            request_id=request_id,
+        )
+        if not bot_ok:
+            missing_list = self._format_missing_permissions(
+                missing_perms,
+                locale=locale,
+                request_id=request_id,
+            )
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.bot_missing_permissions",
+                    locale=locale,
+                    request_id=request_id,
+                    missing_permissions=missing_list,
+                )
+            )
+            metrics.record_channel_link("bot_missing")
+            return
+
+        async with AsyncSessionLocal() as session:
+            user_repo = UserRepository(session)
+            chat_repo = ChatRepository(session)
+            link_repo = ChannelAdminLinkRepository(session)
+
+            db_user = await user_repo.get_or_create_user(
+                telegram_id=str(user.id),
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+            )
+            actor_chat = await self._ensure_chat_record(
+                session,
+                telegram_chat=telegram_chat,
+                db_user_id=db_user.id,
+                preferred_locale=locale_hint,
+                request_id=request_id,
+            )
+            channel_db_chat = await self._ensure_chat_record(
+                session,
+                telegram_chat=channel_chat,
+                db_user_id=None,
+                preferred_locale=locale_hint,
+                request_id=request_id,
+            )
+            await link_repo.upsert_link(
+                channel_chat_id=channel_db_chat.id,
+                admin_user_id=db_user.id,
+                role=admin_member.status or "administrator",
+                last_verified_at=datetime.now(UTC),
+                request_id=request_id,
+            )
+            await chat_repo.set_active_channel(
+                chat=actor_chat,
+                channel_chat=channel_db_chat,
+                ttl_seconds=CHANNEL_CONTEXT_TTL_SECONDS,
+            )
+            locale = self._resolve_locale(
+                chat=actor_chat,
+                locale_hint=locale_hint,
+                telegram_chat=telegram_chat,
+            )
+
+        channel_title = (
+            self._chat_display_name(channel_chat)
+            or channel_chat.title
+            or channel_chat.username
+            or str(channel_chat.id)
+        )
+        await message.reply_text(
+            self._translate(
+                "handlers.channel_link.success",
+                locale=locale,
+                request_id=request_id,
+                channel_title=channel_title,
+                ttl_minutes=settings.dm_channel_context_ttl_minutes,
+            )
+        )
+        self._info(
+            "Linked channel via DM",
+            request_id=request_id,
+            operation="handler.channel_link",
+            chat=channel_chat,
+            user=user,
+            extra={"meta_channel_title": sanitize_label(channel_title)},
+        )
+        metrics.record_channel_link("success")
+
+    async def channel_select_command(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Show inline keyboard for selecting linked channels."""
+        request_id = new_request_id()
+        user = update.effective_user
+        message = update.message
+        telegram_chat = update.effective_chat
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
+        if user is None or message is None or telegram_chat is None:
+            self._warning(
+                "Received /channel_select without required context",
+                request_id=request_id,
+                operation="handler.channel_select",
+                chat=telegram_chat,
+                user=user,
+            )
+            return
+
+        if getattr(telegram_chat, "type", "private") != "private":
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_select.private_only",
+                    locale=locale_hint,
+                    request_id=request_id,
+                )
+            )
+            return
+
+        async with AsyncSessionLocal() as session:
+            user_repo = UserRepository(session)
+            link_repo = ChannelAdminLinkRepository(session)
+
+            db_user = await user_repo.get_or_create_user(
+                telegram_id=str(user.id),
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+            )
+            actor_chat = await self._ensure_chat_record(
+                session,
+                telegram_chat=telegram_chat,
+                db_user_id=db_user.id,
+                preferred_locale=locale_hint,
+                request_id=request_id,
+            )
+            links = await link_repo.list_active_links_for_user(
+                db_user.id,
+                request_id=request_id,
+            )
+            locale = self._resolve_locale(
+                chat=actor_chat,
+                locale_hint=locale_hint,
+                telegram_chat=telegram_chat,
+            )
+            if not links:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_select.none_linked",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
+                metrics.record_channel_selection("empty")
+                return
+
+            keyboard = self._channel_selection_keyboard(
+                links=links,
+                actor_chat=actor_chat,
+                locale=locale,
+                request_id=request_id,
+            )
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_select.prompt",
+                    locale=locale,
+                    request_id=request_id,
+                    ttl_minutes=settings.dm_channel_context_ttl_minutes,
+                ),
+                reply_markup=keyboard,
+            )
+
+    async def handle_channel_select_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle inline keyboard selection for channel contexts."""
+        request_id = new_request_id()
+        query = update.callback_query
+        user = update.effective_user or (query.from_user if query else None)
+        telegram_chat = update.effective_chat or (query.message.chat if query and query.message else None)
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
+        if query is None or telegram_chat is None or user is None:
+            self._warning(
+                "Channel select callback missing context",
+                request_id=request_id,
+                operation="handler.channel_select.callback",
+                chat=telegram_chat,
+                user=user,
+            )
+            return
+        data = query.data or ""
+        if not data.startswith("chanselect::"):
+            return
+
+        parts = data.split("::", 2)
+        action = parts[1] if len(parts) > 1 else ""
+        payload = parts[2] if len(parts) > 2 else ""
+
+        if getattr(telegram_chat, "type", "private") != "private":
+            await query.answer(
+                self._translate(
+                    "handlers.channel_select.private_only",
+                    locale=locale_hint,
+                    request_id=request_id,
+                ),
+                show_alert=True,
+            )
+            return
+
+        async with AsyncSessionLocal() as session:
+            user_repo = UserRepository(session)
+            chat_repo = ChatRepository(session)
+            link_repo = ChannelAdminLinkRepository(session)
+
+            db_user = await user_repo.get_or_create_user(
+                telegram_id=str(user.id),
+                username=user.username,
+                first_name=user.first_name,
+                last_name=user.last_name,
+            )
+            actor_chat = await self._ensure_chat_record(
+                session,
+                telegram_chat=telegram_chat,
+                db_user_id=db_user.id,
+                preferred_locale=locale_hint,
+                request_id=request_id,
+            )
+            locale = self._resolve_locale(
+                chat=actor_chat,
+                locale_hint=locale_hint,
+                telegram_chat=telegram_chat,
+            )
+
+            if action == "clear":
+                await chat_repo.clear_active_channel(actor_chat)
+                await query.answer(
+                    self._translate(
+                        "handlers.channel_select.cleared",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    show_alert=True,
+                )
+                metrics.record_channel_selection("cleared")
+                return
+
+            if action != "set":
+                await query.answer(
+                    self._translate(
+                        "handlers.channel_select.unknown_action",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    show_alert=True,
+                )
+                metrics.record_channel_selection("error")
+                return
+
+            try:
+                channel_pk = int(payload)
+            except (TypeError, ValueError):
+                await query.answer(
+                    self._translate(
+                        "handlers.channel_select.invalid_payload",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    show_alert=True,
+                )
+                metrics.record_channel_selection("error")
+                return
+
+            channel_chat = await chat_repo.get_chat(channel_pk)
+            if channel_chat is None:
+                await chat_repo.clear_active_channel(actor_chat)
+                await query.answer(
+                    self._translate(
+                        "handlers.channel_select.channel_missing",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    show_alert=True,
+                )
+                metrics.record_channel_selection("error")
+                return
+
+            link = await link_repo.get_active_link(
+                channel_chat_id=channel_chat.id,
+                admin_user_id=db_user.id,
+                request_id=request_id,
+            )
+            if link is None:
+                await chat_repo.clear_active_channel(actor_chat)
+                await query.answer(
+                    self._translate(
+                        "handlers.channel_select.link_missing",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    show_alert=True,
+                )
+                metrics.record_channel_selection("expired")
+                return
+
+            if self.acl_service is not None:
+                is_admin = await self.acl_service.verify_admin(
+                    chat_id=channel_chat.chat_id,
+                    user_id=user.id,
+                    chat_type="channel",
+                    request_id=request_id,
+                )
+                if not is_admin:
+                    await link_repo.mark_revoked(
+                        channel_chat_id=channel_chat.id,
+                        admin_user_id=db_user.id,
+                        request_id=request_id,
+                    )
+                    await chat_repo.clear_active_channel(actor_chat)
+                    await query.answer(
+                        self._translate(
+                            "handlers.channel_select.revoked",
+                            locale=locale,
+                            request_id=request_id,
+                        ),
+                        show_alert=True,
+                    )
+                    metrics.record_channel_selection("denied")
+                    return
+
+            bot_ok, missing_perms = await self._verify_bot_permissions(
+                channel_chat_id=channel_chat.chat_id,
+                locale=locale,
+                request_id=request_id,
+            )
+            if not bot_ok:
+                missing_text = self._format_missing_permissions(
+                    missing_perms,
+                    locale=locale,
+                    request_id=request_id,
+                )
+                await query.answer(
+                    self._translate(
+                        "handlers.channel_select.bot_missing_permissions",
+                        locale=locale,
+                        request_id=request_id,
+                        missing_permissions=missing_text,
+                    ),
+                    show_alert=True,
+                )
+                metrics.record_channel_selection("bot_missing")
+                return
+
+            await chat_repo.set_active_channel(
+                chat=actor_chat,
+                channel_chat=channel_chat,
+                ttl_seconds=CHANNEL_CONTEXT_TTL_SECONDS,
+            )
+            await query.answer(
+                self._translate(
+                    "handlers.channel_select.selected",
+                    locale=locale,
+                    request_id=request_id,
+                    channel_title=channel_chat.title or channel_chat.chat_id,
+                ),
+                show_alert=True,
+            )
+            links = await link_repo.list_active_links_for_user(
+                db_user.id,
+                request_id=request_id,
+            )
+            keyboard = self._channel_selection_keyboard(
+                links=links,
+                actor_chat=actor_chat,
+                locale=locale,
+                request_id=request_id,
+            )
+            if query.message:
+                await query.edit_message_text(
+                    self._translate(
+                        "handlers.channel_select.prompt",
+                        locale=locale,
+                        request_id=request_id,
+                        ttl_minutes=settings.dm_channel_context_ttl_minutes,
+                    ),
+                    reply_markup=keyboard,
+                )
+            metrics.record_channel_selection("selected")
+
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         request_id = new_request_id()
@@ -719,7 +1481,7 @@ class BotHandlers:
         telegram_chat: TelegramChat,
         locale_hint: str | None,
         request_id: str,
-    ) -> tuple[User | None, DBChat | None]:
+    ) -> tuple[User, DBChat | None]:
         """Ensure both the acting user and chat exist in the database."""
         user_repo = UserRepository(session)
         db_user = await user_repo.get_or_create_user(
@@ -787,14 +1549,14 @@ class BotHandlers:
 
         async with AsyncSessionLocal() as session:
             subscription_repo = SubscriptionRepository(session)
-            _db_user, chat = await self._get_chat_and_user(
+            db_user, actor_chat = await self._get_chat_and_user(
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
                 locale_hint=locale_hint,
                 request_id=request_id,
             )
-            if chat is None:
+            if actor_chat is None:
                 locale = self._resolve_locale(
                     chat=None,
                     locale_hint=locale_hint,
@@ -816,21 +1578,41 @@ class BotHandlers:
                 )
                 return
 
-            subscriptions = await subscription_repo.get_chat_subscriptions(
-                chat.id, request_id=request_id
+            context_state = await self._build_command_context(
+                session,
+                db_user=db_user,
+                actor_chat=actor_chat,
+                telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
+                request_id=request_id,
             )
-        locale = self._resolve_locale(
-            chat=chat,
-            locale_hint=locale_hint,
-            telegram_chat=telegram_chat,
-        )
+            if context_state.context_cleared:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_context.expired",
+                        locale=context_state.locale,
+                        request_id=request_id,
+                    )
+                )
+            target_chat = context_state.target_chat
+            locale = context_state.locale
+            subscriptions = await subscription_repo.get_chat_subscriptions(
+                target_chat.id,
+                request_id=request_id,
+            )
 
         if not subscriptions:
+            key = "handlers.list.no_active_subscriptions"
+            params: dict[str, str] = {}
+            if target_chat.chat_type == "channel":
+                key = "handlers.list.no_active_subscriptions_channel"
+                params["channel_title"] = target_chat.title or target_chat.chat_id
             await message.reply_text(
                 self._translate(
-                    "handlers.list.no_active_subscriptions",
+                    key,
                     locale=locale,
                     request_id=request_id,
+                    **params,
                 )
             )
             self._debug(
@@ -844,8 +1626,14 @@ class BotHandlers:
 
         text = format_subscription_list(
             subscriptions,
-            chat_title=telegram_chat.title,
-            chat_type=telegram_chat.type,
+            chat_title=target_chat.title if target_chat.chat_type != "channel" else target_chat.title,
+            chat_type=target_chat.chat_type,
+            locale=locale,
+            request_id=request_id,
+        )
+        text = self._prepend_context_notice(
+            text,
+            target_chat=target_chat,
             locale=locale,
             request_id=request_id,
         )
@@ -898,14 +1686,14 @@ class BotHandlers:
 
         async with AsyncSessionLocal() as session:
             subscription_repo = SubscriptionRepository(session)
-            _db_user, chat = await self._get_chat_and_user(
+            db_user, actor_chat = await self._get_chat_and_user(
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
                 locale_hint=locale_hint,
                 request_id=request_id,
             )
-            if chat is None:
+            if actor_chat is None:
                 locale = self._resolve_locale(
                     chat=None,
                     locale_hint=locale_hint,
@@ -927,21 +1715,41 @@ class BotHandlers:
                 )
                 return
 
-            subscriptions = await subscription_repo.get_chat_subscriptions(
-                chat.id, request_id=request_id
+            context_state = await self._build_command_context(
+                session,
+                db_user=db_user,
+                actor_chat=actor_chat,
+                telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
+                request_id=request_id,
             )
-        locale = self._resolve_locale(
-            chat=chat,
-            locale_hint=locale_hint,
-            telegram_chat=telegram_chat,
-        )
+            if context_state.context_cleared:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_context.expired",
+                        locale=context_state.locale,
+                        request_id=request_id,
+                    )
+                )
+            target_chat = context_state.target_chat
+            locale = context_state.locale
+            subscriptions = await subscription_repo.get_chat_subscriptions(
+                target_chat.id,
+                request_id=request_id,
+            )
 
         if not subscriptions:
+            key = "handlers.unsubscribe.no_active_subscriptions"
+            params: dict[str, str] = {}
+            if target_chat.chat_type == "channel":
+                key = "handlers.unsubscribe.no_active_subscriptions_channel"
+                params["channel_title"] = target_chat.title or target_chat.chat_id
             await message.reply_text(
                 self._translate(
-                    "handlers.unsubscribe.no_active_subscriptions",
+                    key,
                     locale=locale,
                     request_id=request_id,
+                    **params,
                 )
             )
             self._debug(
@@ -976,12 +1784,19 @@ class BotHandlers:
         )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
+        prompt_text = self._translate(
+            "handlers.unsubscribe.select_prompt",
+            locale=locale,
+            request_id=request_id,
+        )
+        prompt_text = self._prepend_context_notice(
+            prompt_text,
+            target_chat=target_chat,
+            locale=locale,
+            request_id=request_id,
+        )
         await message.reply_text(
-            self._translate(
-                "handlers.unsubscribe.select_prompt",
-                locale=locale,
-                request_id=request_id,
-            ),
+            prompt_text,
             reply_markup=reply_markup,
         )
         self._debug(
@@ -1260,19 +2075,15 @@ class BotHandlers:
             subscription_repo = SubscriptionRepository(session)
             channel_repo = ChannelRepository(session)
 
-            _db_user, chat = await self._get_chat_and_user(
+            db_user, actor_chat = await self._get_chat_and_user(
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
                 locale_hint=locale_hint,
                 request_id=request_id,
             )
-            locale = self._resolve_locale(
-                chat=chat,
-                locale_hint=locale_hint,
-                telegram_chat=telegram_chat,
-            )
-            if chat is None:
+            locale = locale_hint
+            if actor_chat is None:
                 await query.edit_message_text(
                     self._translate(
                         "handlers.unsubscribe.callback.no_chat",
@@ -1289,15 +2100,34 @@ class BotHandlers:
                     channel_id=str(channel_id),
                 )
                 return
+            context_state = await self._build_command_context(
+                session,
+                db_user=db_user,
+                actor_chat=actor_chat,
+                telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
+                request_id=request_id,
+            )
+            if context_state.context_cleared:
+                await query.edit_message_text(
+                    self._translate(
+                        "handlers.channel_context.expired",
+                        locale=context_state.locale,
+                        request_id=request_id,
+                    )
+                )
+                return
+            locale = context_state.locale
+            target_chat = context_state.target_chat
 
             channel = await channel_repo.get_channel(channel_id)
             subscription = await subscription_repo.get_subscription(
-                chat.id, channel_id, request_id=request_id
+                target_chat.id, channel_id, request_id=request_id
             )
             has_other_subscribers = await self.check_if_channel_has_other_subscribers(
                 session,
                 channel_id,
-                exclude_chat_id=chat.id,
+                exclude_chat_id=target_chat.id,
                 request_id=request_id,
             )
             self._debug(
@@ -1315,7 +2145,9 @@ class BotHandlers:
             )
 
             success = await subscription_repo.delete_subscription(
-                chat.id, channel_id, request_id=request_id
+                target_chat.id,
+                channel_id,
+                request_id=request_id,
             )
             if not success:
                 await query.edit_message_text(
@@ -1472,18 +2304,31 @@ class BotHandlers:
                     first_name=user.first_name,
                     last_name=user.last_name,
                 )
-                chat = await self._ensure_chat_record(
+                actor_chat = await self._ensure_chat_record(
                     session,
                     telegram_chat=telegram_chat,
                     db_user_id=db_user.id,
                     request_id=correlation_id,
                     preferred_locale=locale_hint,
                 )
-                locale = self._resolve_locale(
-                    chat=chat,
-                    locale_hint=locale_hint,
+                context_state = await self._build_command_context(
+                    session,
+                    db_user=db_user,
+                    actor_chat=actor_chat,
                     telegram_chat=telegram_chat,
+                    locale_hint=locale_hint,
+                    request_id=correlation_id,
                 )
+                if context_state.context_cleared:
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.channel_context.expired",
+                            locale=context_state.locale,
+                            request_id=correlation_id,
+                        )
+                    )
+                target_chat = context_state.target_chat
+                locale = context_state.locale
 
                 if result.get("type") == "video":
                     channel_info = result["channel"]
@@ -1496,14 +2341,17 @@ class BotHandlers:
                     )
 
                     existing = await subscription_repo.get_subscription(
-                        chat.id, db_channel.id, request_id=correlation_id
+                        target_chat.id,
+                        db_channel.id,
+                        request_id=correlation_id,
                     )
                     if existing:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.video.already_subscribed",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                                 video_title=video_info["title"],
                             ),
@@ -1526,22 +2374,25 @@ class BotHandlers:
                     has_other_subscribers = await self.check_if_channel_has_other_subscribers(
                         session,
                         db_channel.id,
-                        exclude_chat_id=chat.id,
+                        exclude_chat_id=target_chat.id,
                         subscribers=channel_subscribers,
                         request_id=correlation_id,
                     )
 
                     subscription = await subscription_repo.create_subscription(
-                        chat.id, db_channel.id, request_id=correlation_id
+                        target_chat.id,
+                        db_channel.id,
+                        request_id=correlation_id,
                     )
 
                     webhook_success = True
                     if not has_other_subscribers:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.video.subscribing",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                             ),
                             parse_mode="Markdown",
@@ -1560,7 +2411,7 @@ class BotHandlers:
                             (
                                 sub.webhook_url
                                 for sub in channel_subscribers
-                                if sub.chat_id != chat.id and sub.webhook_url
+                                if sub.chat_id != target_chat.id and sub.webhook_url
                             ),
                             None,
                         )
@@ -1574,10 +2425,11 @@ class BotHandlers:
 
                     if webhook_success:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.video.success",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                                 video_title=video_info["title"],
                             ),
@@ -1593,10 +2445,11 @@ class BotHandlers:
                         )
                     else:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.video.warning",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                                 video_title=video_info["title"],
                             ),
@@ -1613,10 +2466,11 @@ class BotHandlers:
 
                 elif result.get("type") == "playlist":
                     await processing_msg.edit_text(
-                        self._translate(
+                        self._render_contextual_message(
                             "handlers.subscribe.playlist_not_supported",
                             locale=locale,
                             request_id=correlation_id,
+                            target_chat=target_chat,
                         )
                     )
                     self._warning(
@@ -1637,14 +2491,15 @@ class BotHandlers:
                     )
 
                     existing = await subscription_repo.get_subscription(
-                        chat.id, db_channel.id, request_id=correlation_id
+                        target_chat.id, db_channel.id, request_id=correlation_id
                     )
                     if existing:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.channel.already_subscribed",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                             ),
                             parse_mode="Markdown",
@@ -1666,22 +2521,23 @@ class BotHandlers:
                     has_other_subscribers = await self.check_if_channel_has_other_subscribers(
                         session,
                         db_channel.id,
-                        exclude_chat_id=chat.id,
+                        exclude_chat_id=target_chat.id,
                         subscribers=channel_subscribers,
                         request_id=correlation_id,
                     )
 
                     subscription = await subscription_repo.create_subscription(
-                        chat.id, db_channel.id, request_id=correlation_id
+                        target_chat.id, db_channel.id, request_id=correlation_id
                     )
 
                     webhook_success = True
                     if not has_other_subscribers:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.channel.subscribing",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                             ),
                             parse_mode="Markdown",
@@ -1700,7 +2556,7 @@ class BotHandlers:
                             (
                                 sub.webhook_url
                                 for sub in channel_subscribers
-                                if sub.chat_id != chat.id and sub.webhook_url
+                                if sub.chat_id != target_chat.id and sub.webhook_url
                             ),
                             None,
                         )
@@ -1714,10 +2570,11 @@ class BotHandlers:
 
                     if webhook_success:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.channel.success",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                             ),
                             parse_mode="Markdown",
@@ -1732,10 +2589,11 @@ class BotHandlers:
                         )
                     else:
                         await processing_msg.edit_text(
-                            self._translate(
+                            self._render_contextual_message(
                                 "handlers.subscribe.channel.warning",
                                 locale=locale,
                                 request_id=correlation_id,
+                                target_chat=target_chat,
                                 channel_name=channel_info["title"],
                             ),
                             parse_mode="Markdown",
@@ -1863,12 +2721,20 @@ def setup_handlers(application: Application, youtube_api: YouTubeAPI) -> BotHand
     application.add_handler(CommandHandler("subscribe", handlers.subscribe_command))
     application.add_handler(CommandHandler("list", handlers.list_command))
     application.add_handler(CommandHandler("unsubscribe", handlers.unsubscribe_command))
+    application.add_handler(CommandHandler("channel_link", handlers.channel_link_command))
+    application.add_handler(CommandHandler("channel_select", handlers.channel_select_command))
     application.add_handler(CommandHandler("language", handlers.language_command))
     application.add_handler(
         CallbackQueryHandler(handlers.handle_language_callback, pattern="^lang::")
     )
     application.add_handler(
         CallbackQueryHandler(handlers.handle_unsubscribe_callback, pattern="^(unsub_|cancel$)")
+    )
+    application.add_handler(
+        CallbackQueryHandler(
+            handlers.handle_channel_select_callback,
+            pattern="^chanselect::",
+        )
     )
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message)

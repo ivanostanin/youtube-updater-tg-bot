@@ -41,6 +41,10 @@ python -m src.main
 
 # Or using the installed script (after pip install -e .)
 youtube-updater-tg-bot
+
+# Channel administration (DM-only)
+/channel_link @examplechannel
+/channel_select
 ```
 
 ### Testing & Code Quality
@@ -127,6 +131,7 @@ deactivate
 
 ### Core Features
 - **Multi-platform support**: Personal messages, Telegram channels, and groups
+- **Private channel onboarding**: `/channel_link` + `/channel_select` keep all channel configuration inside DMs so broadcasts stay clean.
 - **ACL (Access Control)**: Users must be admin in groups/channels to configure bot
 - **Webhook management**: Automated registration/unregistration with PubSubHubbub
 - **Update logging**: Track and store updates for watched channels

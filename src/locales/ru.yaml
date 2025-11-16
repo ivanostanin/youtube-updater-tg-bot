@@ -21,6 +21,8 @@ handlers:
       /subscribe <URL> — подписаться на канал/ролик/плейлист
       /list — показать активные подписки
       /unsubscribe — удалить подписку
+      /channel_link <@channel> — привязать канал в личном чате
+      /channel_select — выбрать активный канал в DM
       /language — выбрать язык
       /help — справка
 
@@ -69,12 +71,52 @@ handlers:
         ⚠️ Подписка на **{channel_name}** оформлена, но не удалось подключить мгновенные уведомления.
 
         Возможны задержки в доставке уведомлений.
+  channel_link:
+    private_only: "Выполняйте /channel_link в личном чате с ботом."
+    missing_identifier: |-
+      Укажите @username канала или ссылку t.me.
+      Пример: /channel_link @examplechannel
+    invalid_identifier: "Не удалось распознать ссылку на канал. Используйте публичный @username или числовой ID."
+    bot_unavailable: "Клиент Telegram ещё не готов. Попробуйте через несколько секунд."
+    lookup_failed: "Не удалось загрузить канал. Проверьте имя пользователя или ссылку."
+    invalid_type: "Этот чат не является каналом. Укажите именно канал."
+    permission_check_failed: "Не удалось проверить ваши права администратора. Повторите попытку позже."
+    admin_only: "Только администраторы могут привязать {channel_title}."
+    bot_missing_permissions: "Добавьте бота с правами: {missing_permissions}, затем повторите команду."
+    success: |-
+      ✅ {channel_title} привязан.
+
+      Команды в DM будут относиться к этому каналу {ttl_minutes} мин. Используйте /channel_select, чтобы переключиться.
+    permission_labels:
+      can_post_messages: "Право отправлять сообщения"
+      can_delete_messages: "Право удалять сообщения"
+      can_edit_messages: "Право редактировать сообщения"
+  channel_select:
+    private_only: "Используйте /channel_select в личном чате с ботом."
+    none_linked: "Ещё нет привязанных каналов. Сначала выполните /channel_link."
+    prompt: |-
+      Выберите канал, которым будет управлять этот DM.
+      Выбор действует {ttl_minutes} минут или пока вы его не смените.
+    clear_button: "Использовать этот DM"
+    cleared: "Выбор канала сброшен. Команды снова относятся к этому чату."
+    unknown_action: "Неизвестный выбор. Откройте /channel_select заново."
+    invalid_payload: "Не удалось распознать выбранный канал."
+    channel_missing: "Запись канала не найдена. Привяжите его заново через /channel_link."
+    link_missing: "Связь с этим каналом утеряна. Выполните /channel_link ещё раз."
+    revoked: "Telegram сообщает, что вы больше не администратор, поэтому доступ удалён."
+    bot_missing_permissions: "У бота нет обязательных прав ({missing_permissions}). Выдайте их и повторите."
+    selected: "Теперь управляем каналом {channel_title}. Команды будут применяться к нему, пока вы не переключитесь."
+  channel_context:
+    target_notice: "🎯 Активный канал: {channel_title}"
+    expired: "Срок действия выбранного канала истёк. Используйте /channel_select, чтобы выбрать снова."
   list:
     no_subscriptions: "У вас ещё нет подписок."
     no_active_subscriptions: "Активных подписок не найдено."
+    no_active_subscriptions_channel: "{channel_title} пока не имеет активных подписок."
   unsubscribe:
     no_subscriptions: "В этом чате нет подписок для удаления."
     no_active_subscriptions: "Активных подписок не найдено."
+    no_active_subscriptions_channel: "У {channel_title} нет подписок для удаления."
     cancel_button: "Отмена"
     select_prompt: "Выберите подписку для удаления:"
     callback:
