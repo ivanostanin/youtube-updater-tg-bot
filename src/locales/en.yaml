@@ -74,7 +74,7 @@ handlers:
   channel_link:
     private_only: "Run /channel_link inside a private DM with the bot."
     missing_identifier: |-
-      Provide the channel @username or t.me link.
+      Provide the channel @username, numeric chat ID, or forward a message from that channel and reply /channel_link.
       Example: /channel_link @examplechannel
     invalid_identifier: "I couldn't parse that channel reference. Use a public @username or numeric chat ID."
     bot_unavailable: "Telegram bot client isn't ready yet. Please try again in a few seconds."
@@ -87,6 +87,8 @@ handlers:
       ✅ {channel_title} is linked.
 
       DM commands will target this channel for the next {ttl_minutes} minutes. Use /channel_select to switch at any time.
+    forward_hint: |-
+      For private channels, forward any recent message from the channel to this DM (or reply to one) and run /channel_link again so I can read the channel ID.
     permission_labels:
       can_post_messages: "Can post messages"
       can_delete_messages: "Can delete messages"

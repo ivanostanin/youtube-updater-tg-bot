@@ -74,7 +74,7 @@ handlers:
   channel_link:
     private_only: "Führe /channel_link in einem privaten Chat mit dem Bot aus."
     missing_identifier: |-
-      Gib den @Benutzernamen oder den t.me-Link des Kanals an.
+      Gib den @Benutzernamen, die numerische Chat-ID oder leite eine Nachricht aus dem Kanal weiter und antworte mit /channel_link.
       Beispiel: /channel_link @examplechannel
     invalid_identifier: "Die Kanalreferenz konnte nicht erkannt werden. Verwende einen öffentlichen @Benutzernamen oder eine numerische ID."
     bot_unavailable: "Der Telegram-Client des Bots ist noch nicht bereit. Bitte in wenigen Sekunden erneut versuchen."
@@ -87,6 +87,8 @@ handlers:
       ✅ {channel_title} wurde verknüpft.
 
       DM-Befehle steuern diesen Kanal {ttl_minutes} Minuten lang. Mit /channel_select kannst du jederzeit wechseln.
+    forward_hint: |-
+      Für private Kanäle: Leite eine aktuelle Nachricht aus dem Kanal an diesen Chat weiter (oder antworte darauf) und führe /channel_link erneut aus, damit ich die Kanal-ID lesen kann.
     permission_labels:
       can_post_messages: "Nachrichten senden"
       can_delete_messages: "Nachrichten löschen"

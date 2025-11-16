@@ -74,7 +74,7 @@ handlers:
   channel_link:
     private_only: "Выполняйте /channel_link в личном чате с ботом."
     missing_identifier: |-
-      Укажите @username канала или ссылку t.me.
+      Укажите @username, числовой ID канала либо перешлите сообщение из канала и ответьте командой /channel_link.
       Пример: /channel_link @examplechannel
     invalid_identifier: "Не удалось распознать ссылку на канал. Используйте публичный @username или числовой ID."
     bot_unavailable: "Клиент Telegram ещё не готов. Попробуйте через несколько секунд."
@@ -87,6 +87,8 @@ handlers:
       ✅ {channel_title} привязан.
 
       Команды в DM будут относиться к этому каналу {ttl_minutes} мин. Используйте /channel_select, чтобы переключиться.
+    forward_hint: |-
+      Для приватных каналов перешлите недавнее сообщение из канала в этот чат (или ответьте на него) и снова выполните /channel_link, чтобы я увидел ID канала.
     permission_labels:
       can_post_messages: "Право отправлять сообщения"
       can_delete_messages: "Право удалять сообщения"

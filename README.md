@@ -12,6 +12,7 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 - Multilingual responses (English, Russian, German) with per-chat `/language` control
 - Support for various YouTube URL formats
 - Link Telegram broadcast channels and manage their subscriptions privately via DMs
+- Private channels supported via forwarded-message verification (no public @username required)
 - Webhook-based real-time notifications via PubSubHubbub
 
 ## Quick Start
@@ -45,7 +46,8 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 - `/subscribe <YouTube URL>` - Subscribe to a channel/video/playlist
 - `/list` - Show your active subscriptions
 - `/unsubscribe` - Remove subscriptions
-- `/channel_link <@channel>` - Link a broadcast channel from a DM
+- `/channel_link <@channel>` - Link a broadcast channel from a DM  
+  (For private channels, forward any recent message from the channel to this DM and reply `/channel_link` to that forwarded message)
 - `/channel_select` - Pick the active channel context for DM commands
 - `/language` - Select your preferred language for this chat
 - `/help` - Show available commands

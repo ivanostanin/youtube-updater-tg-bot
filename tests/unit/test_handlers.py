@@ -924,6 +924,52 @@ async def test_dm_subscription_targets_channel_context(
 
 
 @allure.feature("Bot Handlers")
+@allure.story("Channel Linking")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_channel_link_command_links_private_channel_via_forward(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Allow linking when the admin replies to a forwarded private channel message."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_context.args = []
+
+    forward_channel = MagicMock()
+    forward_channel.id = -100777888999
+    forward_channel.type = "channel"
+    forward_channel.title = "Private Channel"
+    forward_channel.username = None
+
+    reply_message = MagicMock()
+    reply_message.forward_from_chat = forward_channel
+    mock_telegram_update.message.reply_to_message = reply_message
+
+    admin_member = MagicMock()
+    admin_member.status = "administrator"
+    bot_member = MagicMock()
+    bot_member.can_post_messages = True
+    bot_member.can_delete_messages = True
+    bot_member.can_edit_messages = True
+
+    mock_telegram_context.bot.get_chat_member = AsyncMock(
+        side_effect=[admin_member, bot_member]
+    )
+    mock_telegram_context.bot.get_chat = AsyncMock()
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_context.bot.get_chat.assert_not_called()
+
+    link_rows = await async_db_session.execute(select(ChannelAdminLink))
+    link = link_rows.scalar_one()
+    assert link.revoked_at is None
+
+
+@allure.feature("Bot Handlers")
 @allure.story("Webhook Management")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit

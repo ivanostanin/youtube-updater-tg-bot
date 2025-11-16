@@ -14,6 +14,7 @@ from telegram import (
 from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    Message,
     Update,
 )
 from telegram import (
@@ -388,6 +389,19 @@ class BotHandlers:
             return f"{notice}\n\n{text}"
         return text
 
+    def _extract_forwarded_channel(self, message: Message | None) -> TelegramChat | None:
+        """Return the channel referenced by a forwarded message or reply chain."""
+        if message is None:
+            return None
+        candidates = [
+            getattr(message, "forward_from_chat", None),
+            getattr(getattr(message, "reply_to_message", None), "forward_from_chat", None),
+        ]
+        for candidate in candidates:
+            if candidate is not None and getattr(candidate, "type", None) == "channel":
+                return cast(TelegramChat, candidate)
+        return None
+
     def _render_contextual_message(
         self,
         key: str,
@@ -742,26 +756,22 @@ class BotHandlers:
             )
             return
 
-        if not context.args:
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.missing_identifier",
-                    locale=locale,
-                    request_id=request_id,
+        forwarded_channel = self._extract_forwarded_channel(message)
+        channel_chat: TelegramChat | None = None
+        identifier: str | None = None
+        if context.args:
+            identifier = self._normalize_channel_identifier(context.args[0])
+            if not identifier:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.invalid_identifier",
+                        locale=locale,
+                        request_id=request_id,
+                    )
                 )
-            )
-            return
-
-        identifier = self._normalize_channel_identifier(context.args[0])
-        if not identifier:
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.invalid_identifier",
-                    locale=locale,
-                    request_id=request_id,
-                )
-            )
-            return
+                return
+        elif forwarded_channel is not None:
+            channel_chat = forwarded_channel
 
         if self.bot is None:
             await message.reply_text(
@@ -774,24 +784,36 @@ class BotHandlers:
             metrics.record_channel_link("error")
             return
 
-        try:
-            channel_chat = cast(TelegramChat, await self.bot.get_chat(identifier))
-        except TelegramError as exc:
+        if identifier:
+            try:
+                channel_chat = cast(TelegramChat, await self.bot.get_chat(identifier))
+            except TelegramError as exc:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.lookup_failed",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
+                self._warning(
+                    "Failed to resolve channel for linking",
+                    request_id=request_id,
+                    operation="handler.channel_link",
+                    user=user,
+                    extra={"meta_error": sanitize_label(str(exc))},
+                )
+                metrics.record_channel_link("error")
+                return
+
+        if channel_chat is None:
             await message.reply_text(
                 self._translate(
-                    "handlers.channel_link.lookup_failed",
+                    "handlers.channel_link.forward_hint",
                     locale=locale,
                     request_id=request_id,
                 )
             )
-            self._warning(
-                "Failed to resolve channel for linking",
-                request_id=request_id,
-                operation="handler.channel_link",
-                user=user,
-                extra={"meta_error": sanitize_label(str(exc))},
-            )
-            metrics.record_channel_link("error")
+            metrics.record_channel_link("denied")
             return
 
         if getattr(channel_chat, "type", None) != "channel":
