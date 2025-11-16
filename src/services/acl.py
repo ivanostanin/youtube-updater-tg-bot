@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from telegram import Bot
 from telegram.error import TelegramError
 
+from ..utils.i18n import translate
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 
 
@@ -139,6 +140,7 @@ class ACLService:
         chat_type: str,
         user_id: int | str | None,
         on_denied: Callable[[str], Awaitable[None]],
+        locale: str | None = None,
         request_id: str | None = None,
     ) -> bool:
         """Ensure the acting user has admin rights; send feedback if not."""
@@ -149,8 +151,11 @@ class ACLService:
 
         if user_id is None:
             await on_denied(
-                "I couldn't identify the user running this command. "
-                "Please issue the command from your personal account while a member of this chat."
+                translate(
+                    "acl.missing_user",
+                    locale=locale,
+                    request_id=correlation_id,
+                )
             )
             return False
 
@@ -162,7 +167,13 @@ class ACLService:
         ):
             return True
 
-        await on_denied("Only chat administrators can manage subscriptions here.")
+        await on_denied(
+            translate(
+                "acl.admin_only",
+                locale=locale,
+                request_id=correlation_id,
+            )
+        )
         self._logger.debug(
             "ACL verification failed",
             extra=log_context(

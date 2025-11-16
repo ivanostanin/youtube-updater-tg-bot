@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from ..utils.locale_codes import SUPPORTED_LOCALES, normalize_locale_code
 from ..utils.logging import get_logger, log_context, new_request_id
 from .models import Chat, Notification, Subscription, User, Video, YouTubeChannel
 
@@ -81,10 +82,12 @@ class ChatRepository:
         chat_type: str,
         title: str | None = None,
         user_id: int | None = None,
+        preferred_locale: str | None = None,
     ) -> Chat:
         """Get existing chat or create a new record."""
         result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
         chat = result.scalar_one_or_none()
+        normalized_locale = normalize_locale_code(preferred_locale)
 
         if chat:
             updated = False
@@ -97,6 +100,9 @@ class ChatRepository:
             if user_id and chat.user_id != user_id:
                 chat.user_id = user_id
                 updated = True
+            if normalized_locale and chat.preferred_locale != normalized_locale:
+                chat.preferred_locale = normalized_locale
+                updated = True
             if updated:
                 await self.session.commit()
             return chat
@@ -106,6 +112,7 @@ class ChatRepository:
             chat_type=chat_type,
             title=title,
             user_id=user_id,
+            preferred_locale=normalized_locale,
         )
         self.session.add(chat)
         await self.session.commit()
@@ -119,6 +126,19 @@ class ChatRepository:
     async def get_chat_by_identifier(self, chat_id: str) -> Chat | None:
         result = await self.session.execute(select(Chat).where(Chat.chat_id == chat_id))
         return result.scalar_one_or_none()
+
+    async def update_chat_locale(self, chat: Chat, preferred_locale: str) -> Chat:
+        """Persist a preferred locale for the chat."""
+        normalized_locale = normalize_locale_code(preferred_locale)
+        if normalized_locale is None:
+            allowed = ", ".join(SUPPORTED_LOCALES)
+            raise ValueError(f"Unsupported locale: {preferred_locale}. Allowed: {allowed}")
+        if chat.preferred_locale == normalized_locale:
+            return chat
+        chat.preferred_locale = normalized_locale
+        await self.session.commit()
+        await self.session.refresh(chat)
+        return chat
 
 
 class ChannelRepository:

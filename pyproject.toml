@@ -46,6 +46,7 @@ dependencies = [
     "python-multipart==0.0.20",
     "feedparser==6.0.12",
     "boto3>=1.40.0",
+    "pyyaml>=6.0.2",
 ]
 
 [project.optional-dependencies]
@@ -58,7 +59,7 @@ dev = [
     "ruff==0.14.0",
     "mypy==1.18.2",
     "pre-commit==4.3.0",
-    "pyyaml==6.0.2",
+    "types-PyYAML==6.0.12.20241230",
 ]
 
 [project.urls]

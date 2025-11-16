@@ -1,6 +1,8 @@
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .locale_codes import SUPPORTED_LOCALES, normalize_locale_code
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
@@ -18,6 +20,10 @@ class Settings(BaseSettings):
         description="Full callback URL for YouTube webhook notifications (publicly accessible)",
     )
     log_level: str = Field(default="INFO", description="Logging level")
+    default_locale: str = Field(
+        default="en",
+        description="Default locale to use when a chat has not selected a language",
+    )
 
     @field_validator("webhook_callback_url")
     @classmethod
@@ -29,6 +35,16 @@ class Settings(BaseSettings):
                 "Only localhost URLs are allowed to use HTTP."
             )
         return v
+
+    @field_validator("default_locale", mode="before")
+    @classmethod
+    def validate_default_locale(cls, v: str | None) -> str:
+        """Ensure DEFAULT_LOCALE stays within the supported catalog."""
+        normalized = normalize_locale_code(v) if v else None
+        if normalized:
+            return normalized
+        allowed = ", ".join(SUPPORTED_LOCALES)
+        raise ValueError(f"DEFAULT_LOCALE must be one of: {allowed}")
 
 
 settings = Settings()

@@ -37,6 +37,9 @@ from ..database.repository import (
 )
 from ..services import ACLService
 from ..utils.config import settings
+from ..utils.formatters import format_subscription_list
+from ..utils.i18n import translate
+from ..utils.locale_codes import SUPPORTED_LOCALES, normalize_locale_code
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 from ..webhooks.pubsub import PubSubManager
 from ..youtube.api import YouTubeAPI
@@ -56,6 +59,7 @@ class BotHandlers:
         self.bot = bot
         self.webhook_manager = PubSubManager(webhook_url=settings.webhook_callback_url)
         self.acl_service = acl_service or (ACLService(bot) if bot is not None else None)
+        self._locale_cache: dict[str, str] = {}
 
     @staticmethod
     def _chat_display_name(chat: TelegramChat | None) -> str | None:
@@ -78,6 +82,95 @@ class BotHandlers:
             if value:
                 return sanitize_label(str(value))
         return None
+
+    @staticmethod
+    def _chat_identifier(chat: TelegramChat | None) -> str | None:
+        """Return string chat identifier if available."""
+        if chat is None:
+            return None
+        identifier = getattr(chat, "id", None)
+        if identifier is None:
+            return None
+        return str(identifier)
+
+    def _cache_locale(self, chat_id: str | None, locale: str) -> None:
+        if chat_id:
+            self._locale_cache[chat_id] = locale
+
+    def _infer_locale_hint(
+        self,
+        *,
+        telegram_chat: TelegramChat | None,
+        telegram_user: TelegramUser | None,
+    ) -> str:
+        """Derive the most likely locale before hitting the database."""
+        chat_id = self._chat_identifier(telegram_chat)
+        if chat_id and chat_id in self._locale_cache:
+            return self._locale_cache[chat_id]
+
+        user_locale = None
+        if telegram_user is not None:
+            user_locale = normalize_locale_code(getattr(telegram_user, "language_code", None))
+        if user_locale:
+            return user_locale
+        return settings.default_locale
+
+    def _resolve_locale(
+        self,
+        *,
+        chat: DBChat | None,
+        locale_hint: str,
+        telegram_chat: TelegramChat | None,
+    ) -> str:
+        """Resolve the locale used for responses and update the cache."""
+        resolved = chat.preferred_locale if chat and chat.preferred_locale else locale_hint
+        self._cache_locale(self._chat_identifier(telegram_chat), resolved)
+        return resolved
+
+    @staticmethod
+    def _translate(
+        key: str,
+        *,
+        locale: str,
+        request_id: str | None,
+        **params: Any,
+    ) -> str:
+        return translate(key, locale=locale, request_id=request_id, **params)
+
+    def _language_keyboard(self, *, locale: str, request_id: str | None) -> InlineKeyboardMarkup:
+        """Build inline keyboard for language selection."""
+        rows: list[list[InlineKeyboardButton]] = []
+        for code in SUPPORTED_LOCALES:
+            label = self._translate(
+                f"handlers.language.option.{code}",
+                locale=locale,
+                request_id=request_id,
+            )
+            if code == locale:
+                label = f"✅ {label}"
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        label,
+                        callback_data=f"lang::{code}",
+                    )
+                ]
+            )
+        return InlineKeyboardMarkup(rows)
+
+    def _language_prompt(self, *, locale: str, request_id: str | None) -> str:
+        """Return prompt text for the /language command."""
+        current_language = self._translate(
+            f"handlers.language.name.{locale}",
+            locale=locale,
+            request_id=request_id,
+        )
+        return self._translate(
+            "handlers.language.prompt",
+            locale=locale,
+            request_id=request_id,
+            current_language=current_language,
+        )
 
     def _log(
         self,
@@ -218,6 +311,7 @@ class BotHandlers:
         *,
         telegram_chat: TelegramChat,
         db_user_id: int | None,
+        preferred_locale: str | None = None,
         request_id: str | None = None,
     ) -> DBChat:
         """Ensure there's a persisted chat entry for the Telegram chat."""
@@ -239,7 +333,10 @@ class BotHandlers:
             chat_type=chat_type,
             title=chat_title,
             user_id=user_id,
+            preferred_locale=preferred_locale,
         )
+        resolved_locale = chat.preferred_locale or preferred_locale or settings.default_locale
+        self._cache_locale(self._chat_identifier(telegram_chat), resolved_locale)
         self._debug(
             "Ensured chat record",
             request_id=correlation_id,
@@ -255,12 +352,19 @@ class BotHandlers:
         telegram_chat: TelegramChat | None,
         telegram_user: TelegramUser | None,
         on_denied: Callable[[str], Awaitable[object]],
+        locale: str,
         request_id: str,
     ) -> bool:
         """Verify admin permissions for shared chat contexts."""
         operation = "acl.require_admin"
         if telegram_chat is None:
-            await on_denied("I couldn't identify which chat triggered this command.")
+            await on_denied(
+                self._translate(
+                    "handlers.acl.missing_chat",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
             self._warning(
                 "Missing chat context while enforcing admin requirement",
                 request_id=request_id,
@@ -282,7 +386,11 @@ class BotHandlers:
 
         if self.acl_service is None:
             await on_denied(
-                "I can't verify admin permissions for this chat right now. Please try again later."
+                self._translate(
+                    "handlers.acl.service_unavailable",
+                    locale=locale,
+                    request_id=request_id,
+                )
             )
             self._error(
                 "ACL service unavailable; denying group command execution",
@@ -295,7 +403,13 @@ class BotHandlers:
 
         chat_identifier: Any = getattr(telegram_chat, "id", None)
         if chat_identifier is None:
-            await on_denied("I couldn't identify the target chat for this action.")
+            await on_denied(
+                self._translate(
+                    "handlers.acl.missing_chat_id",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
             self._warning(
                 "Admin check aborted: chat id missing",
                 request_id=request_id,
@@ -340,6 +454,7 @@ class BotHandlers:
             chat_type=chat_type,
             user_id=user_id,
             on_denied=forward_denial,
+            locale=locale,
             request_id=request_id,
         )
         self._debug(
@@ -357,6 +472,10 @@ class BotHandlers:
         request_id = new_request_id()
         user = update.effective_user
         message = update.message
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=update.effective_chat,
+            telegram_user=user,
+        )
         if user is None or message is None:
             self._warning(
                 "Received /start without required user or message context",
@@ -374,6 +493,7 @@ class BotHandlers:
             user=user,
         )
 
+        chat_record: DBChat | None = None
         async with AsyncSessionLocal() as session:
             user_repo = UserRepository(session)
             db_user = await user_repo.get_or_create_user(
@@ -383,23 +503,24 @@ class BotHandlers:
                 last_name=user.last_name,
             )
             if update.effective_chat:
-                await self._ensure_chat_record(
+                chat_record = await self._ensure_chat_record(
                     session,
                     telegram_chat=update.effective_chat,
                     db_user_id=db_user.id,
+                    preferred_locale=locale_hint,
                     request_id=request_id,
                 )
 
-        welcome_text = (
-            "🎬 Welcome to YouTube Updater Bot!\n\n"
-            "I can help you subscribe to YouTube channels and get notifications "
-            "when new videos are uploaded.\n\n"
-            "Available commands:\n"
-            "/subscribe <YouTube URL> - Subscribe to a channel, video, or playlist\n"
-            "/list - Show your subscriptions\n"
-            "/unsubscribe - Remove a subscription\n"
-            "/help - Show this help message\n\n"
-            "Just send me a YouTube URL to get started!"
+        locale = self._resolve_locale(
+            chat=chat_record,
+            locale_hint=locale_hint,
+            telegram_chat=update.effective_chat,
+        )
+
+        welcome_text = self._translate(
+            "handlers.start.welcome",
+            locale=locale,
+            request_id=request_id,
         )
 
         await message.reply_text(welcome_text)
@@ -415,6 +536,11 @@ class BotHandlers:
         """Handle /help command."""
         request_id = new_request_id()
         message = update.message
+        user = update.effective_user
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=update.effective_chat,
+            telegram_user=user,
+        )
         if message is None:
             self._warning(
                 "Received /help without message context",
@@ -432,19 +558,27 @@ class BotHandlers:
             user=update.effective_user,
         )
 
-        help_text = (
-            "🎬 YouTube Updater Bot Commands:\n\n"
-            "/start - Start the bot\n"
-            "/subscribe <URL> - Subscribe to YouTube channel/video/playlist\n"
-            "/list - Show your active subscriptions\n"
-            "/unsubscribe - Remove subscriptions\n"
-            "/help - Show this help\n\n"
-            "You can also just send me a YouTube URL directly!\n\n"
-            "Supported URL formats:\n"
-            "• Channel: youtube.com/channel/CHANNEL_ID\n"
-            "• Channel: youtube.com/@username\n"
-            "• Video: youtube.com/watch?v=VIDEO_ID\n"
-            "• Playlist: youtube.com/playlist?list=PLAYLIST_ID"
+        chat_record: DBChat | None = None
+        if update.effective_chat and user:
+            async with AsyncSessionLocal() as session:
+                _db_user, chat_record = await self._get_chat_and_user(
+                    session,
+                    telegram_user=user,
+                    telegram_chat=update.effective_chat,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
+                )
+
+        locale = self._resolve_locale(
+            chat=chat_record,
+            locale_hint=locale_hint,
+            telegram_chat=update.effective_chat,
+        )
+
+        help_text = self._translate(
+            "handlers.help.text",
+            locale=locale,
+            request_id=request_id,
         )
 
         await message.reply_text(help_text)
@@ -456,10 +590,73 @@ class BotHandlers:
             user=update.effective_user,
         )
 
+    async def language_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /language command for selecting chat locale."""
+        request_id = new_request_id()
+        message = update.message
+        user = update.effective_user
+        telegram_chat = update.effective_chat
+        if message is None or user is None or telegram_chat is None:
+            self._warning(
+                "Received /language without required context",
+                request_id=request_id,
+                operation="handler.language",
+                chat=telegram_chat,
+                user=user,
+            )
+            return
+
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
+
+        if ACLService.is_group_context(telegram_chat.type) and not await self._require_admin(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+            on_denied=message.reply_text,
+            locale=locale_hint,
+            request_id=request_id,
+        ):
+            return
+
+        async with AsyncSessionLocal() as session:
+            _db_user, chat = await self._get_chat_and_user(
+                session,
+                telegram_user=user,
+                telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
+                request_id=request_id,
+            )
+
+        locale = self._resolve_locale(
+            chat=chat,
+            locale_hint=locale_hint,
+            telegram_chat=telegram_chat,
+        )
+
+        prompt_text = self._language_prompt(locale=locale, request_id=request_id)
+        keyboard = self._language_keyboard(locale=locale, request_id=request_id)
+
+        await message.reply_text(prompt_text, reply_markup=keyboard)
+        self._debug(
+            "Rendered language selection prompt",
+            request_id=request_id,
+            operation="handler.language",
+            chat=telegram_chat,
+            user=user,
+            extra={"meta_locale": locale},
+        )
+
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe command."""
         request_id = new_request_id()
         message = update.message
+        user = update.effective_user
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=update.effective_chat,
+            telegram_user=user,
+        )
         if message is None:
             self._warning(
                 "Received /subscribe without message context",
@@ -470,10 +667,19 @@ class BotHandlers:
             )
             return
 
+        locale = self._resolve_locale(
+            chat=None,
+            locale_hint=locale_hint,
+            telegram_chat=update.effective_chat,
+        )
+
         if not context.args:
             await message.reply_text(
-                "Please provide a YouTube URL.\n"
-                "Example: /subscribe https://youtube.com/@channelname"
+                self._translate(
+                    "handlers.subscribe.missing_url",
+                    locale=locale,
+                    request_id=request_id,
+                )
             )
             self._debug(
                 "Subscribe command missing URL argument",
@@ -508,6 +714,7 @@ class BotHandlers:
         *,
         telegram_user: TelegramUser,
         telegram_chat: TelegramChat,
+        locale_hint: str | None,
         request_id: str,
     ) -> tuple[User | None, DBChat | None]:
         """Ensure both the acting user and chat exist in the database."""
@@ -522,6 +729,7 @@ class BotHandlers:
             session,
             telegram_chat=telegram_chat,
             db_user_id=db_user.id if db_user else None,
+            preferred_locale=locale_hint,
             request_id=request_id,
         )
         self._debug(
@@ -530,7 +738,11 @@ class BotHandlers:
             operation="chat.ensure_user_link",
             chat=telegram_chat,
             user=telegram_user,
-            extra={"meta_user_pk": getattr(db_user, "id", None), "meta_chat_pk": getattr(chat, "id", None)},
+            extra={
+                "meta_user_pk": getattr(db_user, "id", None),
+                "meta_chat_pk": getattr(chat, "id", None),
+                "meta_locale_hint": locale_hint,
+            },
         )
         return db_user, chat
 
@@ -540,6 +752,10 @@ class BotHandlers:
         user = update.effective_user
         message = update.message
         telegram_chat = update.effective_chat
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
         if user is None or message is None or telegram_chat is None:
             self._warning(
                 "Received /list without required context",
@@ -554,6 +770,7 @@ class BotHandlers:
             telegram_chat=telegram_chat,
             telegram_user=user,
             on_denied=message.reply_text,
+            locale=locale_hint,
             request_id=request_id,
         ):
             return
@@ -571,10 +788,22 @@ class BotHandlers:
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
                 request_id=request_id,
             )
             if chat is None:
-                await message.reply_text("You don't have any subscriptions yet.")
+                locale = self._resolve_locale(
+                    chat=None,
+                    locale_hint=locale_hint,
+                    telegram_chat=telegram_chat,
+                )
+                await message.reply_text(
+                    self._translate(
+                        "handlers.list.no_subscriptions",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
                 self._debug(
                     "List command found no chat record",
                     request_id=request_id,
@@ -587,6 +816,11 @@ class BotHandlers:
             subscriptions = await subscription_repo.get_chat_subscriptions(
                 chat.id, request_id=request_id
             )
+        locale = self._resolve_locale(
+            chat=chat,
+            locale_hint=locale_hint,
+            telegram_chat=telegram_chat,
+        )
 
         if not subscriptions:
             await message.reply_text("You don't have any active subscriptions.")
@@ -599,10 +833,13 @@ class BotHandlers:
             )
             return
 
-        text = "📋 Your subscriptions:\n\n"
-        for sub in subscriptions:
-            text += f"• {sub.channel.channel_name}\n"
-            text += f"  {sub.channel.channel_url}\n\n"
+        text = format_subscription_list(
+            subscriptions,
+            chat_title=telegram_chat.title,
+            chat_type=telegram_chat.type,
+            locale=locale,
+            request_id=request_id,
+        )
 
         await message.reply_text(text)
         self._debug(
@@ -620,6 +857,10 @@ class BotHandlers:
         user = update.effective_user
         message = update.message
         telegram_chat = update.effective_chat
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
         if user is None or message is None or telegram_chat is None:
             self._warning(
                 "Received /unsubscribe without required context",
@@ -634,6 +875,7 @@ class BotHandlers:
             telegram_chat=telegram_chat,
             telegram_user=user,
             on_denied=message.reply_text,
+            locale=locale_hint,
             request_id=request_id,
         ):
             return
@@ -651,10 +893,22 @@ class BotHandlers:
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
                 request_id=request_id,
             )
             if chat is None:
-                await message.reply_text("You don't have any subscriptions to remove.")
+                locale = self._resolve_locale(
+                    chat=None,
+                    locale_hint=locale_hint,
+                    telegram_chat=telegram_chat,
+                )
+                await message.reply_text(
+                    self._translate(
+                        "handlers.unsubscribe.no_subscriptions",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
                 self._debug(
                     "Unsubscribe command has no chat binding",
                     request_id=request_id,
@@ -667,6 +921,11 @@ class BotHandlers:
             subscriptions = await subscription_repo.get_chat_subscriptions(
                 chat.id, request_id=request_id
             )
+        locale = self._resolve_locale(
+            chat=chat,
+            locale_hint=locale_hint,
+            telegram_chat=telegram_chat,
+        )
 
         if not subscriptions:
             await message.reply_text("You don't have any active subscriptions.")
@@ -688,10 +947,28 @@ class BotHandlers:
             ]
             for sub in subscriptions
         ]
-        keyboard.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    self._translate(
+                        "handlers.unsubscribe.cancel_button",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    callback_data="cancel",
+                )
+            ]
+        )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
-        await message.reply_text("Select a subscription to remove:", reply_markup=reply_markup)
+        await message.reply_text(
+            self._translate(
+                "handlers.unsubscribe.select_prompt",
+                locale=locale,
+                request_id=request_id,
+            ),
+            reply_markup=reply_markup,
+        )
         self._debug(
             "Rendered unsubscribe keyboard",
             request_id=request_id,
@@ -701,6 +978,137 @@ class BotHandlers:
             extra={"meta_subscription_count": len(subscriptions)},
         )
 
+    async def handle_language_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        """Handle inline selections for /language command."""
+        request_id = new_request_id()
+        operation = "handler.language.callback"
+        query = update.callback_query
+        if query is None:
+            self._warning(
+                "Language callback missing query payload",
+                request_id=request_id,
+                operation=operation,
+            )
+            return
+
+        data = query.data or ""
+        if not data.startswith("lang::"):
+            await query.answer()
+            return
+
+        target_locale = data.split("::", 1)[1]
+        normalized_locale = normalize_locale_code(target_locale)
+        telegram_chat = update.effective_chat or getattr(query.message, "chat", None)
+        user = update.effective_user or getattr(query, "from_user", None)
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
+        locale = locale_hint
+
+        if normalized_locale is None:
+            await query.answer(
+                self._translate(
+                    "handlers.language.invalid_selection",
+                    locale=locale,
+                    request_id=request_id,
+                ),
+                show_alert=True,
+            )
+            return
+
+        if telegram_chat is None or user is None:
+            await query.answer(
+                self._translate(
+                    "handlers.language.missing_context",
+                    locale=locale,
+                    request_id=request_id,
+                ),
+                show_alert=True,
+            )
+            self._warning(
+                "Language callback missing chat or user context",
+                request_id=request_id,
+                operation=operation,
+            )
+            return
+
+        async def deny(text: str) -> None:
+            await query.answer(text, show_alert=True)
+
+        if ACLService.is_group_context(telegram_chat.type) and not await self._require_admin(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+            on_denied=deny,
+            locale=locale_hint,
+            request_id=request_id,
+        ):
+            return
+
+        async with AsyncSessionLocal() as session:
+            chat_repo = ChatRepository(session)
+            _db_user, chat = await self._get_chat_and_user(
+                session,
+                telegram_user=user,
+                telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
+                request_id=request_id,
+            )
+            if chat is None:
+                await query.answer(
+                    self._translate(
+                        "handlers.language.missing_chat",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                    show_alert=True,
+                )
+                return
+
+            if chat.preferred_locale == normalized_locale:
+                current_message = self._translate(
+                    "handlers.language.already_selected",
+                    locale=locale,
+                    request_id=request_id,
+                    language_name=self._translate(
+                        f"handlers.language.name.{normalized_locale}",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                )
+                await query.answer(current_message, show_alert=True)
+                return
+
+            await chat_repo.update_chat_locale(chat, normalized_locale)
+            locale = normalized_locale
+            self._cache_locale(self._chat_identifier(telegram_chat), locale)
+
+        confirmation = self._translate(
+            "handlers.language.updated",
+            locale=locale,
+            request_id=request_id,
+            language_name=self._translate(
+                f"handlers.language.name.{locale}",
+                locale=locale,
+                request_id=request_id,
+            ),
+        )
+        await query.answer(confirmation, show_alert=True)
+        await query.edit_message_text(
+            self._language_prompt(locale=locale, request_id=request_id),
+            reply_markup=self._language_keyboard(locale=locale, request_id=request_id),
+        )
+        self._info(
+            "Updated chat language preference",
+            request_id=request_id,
+            operation=operation,
+            chat=telegram_chat,
+            user=user,
+            extra={"meta_locale": locale},
+        )
+
     async def handle_unsubscribe_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -708,6 +1116,11 @@ class BotHandlers:
         request_id = new_request_id()
         operation = "handler.unsubscribe.callback"
         query = update.callback_query
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=update.effective_chat,
+            telegram_user=update.effective_user,
+        )
+        locale = locale_hint
         if query is None:
             self._warning(
                 "Received unsubscribe callback without query payload",
@@ -720,8 +1133,13 @@ class BotHandlers:
 
         data = query.data
         if data is None:
-            await query.answer("Unable to process your request (missing data).", show_alert=True)
-            await query.edit_message_text("Unable to process your request (missing data).")
+            message_text = self._translate(
+                "handlers.unsubscribe.callback.missing_data",
+                locale=locale,
+                request_id=request_id,
+            )
+            await query.answer(message_text, show_alert=True)
+            await query.edit_message_text(message_text)
             self._warning(
                 "Callback query missing data",
                 request_id=request_id,
@@ -733,7 +1151,13 @@ class BotHandlers:
 
         if data == "cancel":
             await query.answer()
-            await query.edit_message_text("Cancelled.")
+            await query.edit_message_text(
+                self._translate(
+                    "handlers.unsubscribe.callback.cancelled",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
             self._debug(
                 "User cancelled unsubscribe flow",
                 request_id=request_id,
@@ -744,8 +1168,13 @@ class BotHandlers:
             return
 
         if not data.startswith("unsub_"):
-            await query.answer("Unknown action.", show_alert=True)
-            await query.edit_message_text("Unknown action.")
+            unknown_text = self._translate(
+                "handlers.unsubscribe.callback.unknown_action",
+                locale=locale,
+                request_id=request_id,
+            )
+            await query.answer(unknown_text, show_alert=True)
+            await query.edit_message_text(unknown_text)
             self._warning(
                 "Unknown unsubscribe callback action",
                 request_id=request_id,
@@ -759,8 +1188,13 @@ class BotHandlers:
         try:
             channel_id = int(data.split("_")[1])
         except (IndexError, ValueError):
-            await query.answer("Unable to parse subscription identifier.", show_alert=True)
-            await query.edit_message_text("Unable to parse subscription identifier.")
+            parse_text = self._translate(
+                "handlers.unsubscribe.callback.parse_error",
+                locale=locale,
+                request_id=request_id,
+            )
+            await query.answer(parse_text, show_alert=True)
+            await query.edit_message_text(parse_text)
             self._warning(
                 "Failed to parse channel id from callback",
                 request_id=request_id,
@@ -776,8 +1210,13 @@ class BotHandlers:
         if telegram_chat is None and query.message and getattr(query.message, "chat", None):
             telegram_chat = query.message.chat
         if user is None or telegram_chat is None:
-            await query.answer("Unable to identify user or chat for this action.", show_alert=True)
-            await query.edit_message_text("Unable to identify user or chat for this action.")
+            missing_context_text = self._translate(
+                "handlers.unsubscribe.callback.missing_context",
+                locale=locale,
+                request_id=request_id,
+            )
+            await query.answer(missing_context_text, show_alert=True)
+            await query.edit_message_text(missing_context_text)
             self._warning(
                 "Unsubscribe callback missing user or chat context",
                 request_id=request_id,
@@ -795,6 +1234,7 @@ class BotHandlers:
             telegram_chat=telegram_chat,
             telegram_user=user,
             on_denied=deny,
+            locale=locale_hint,
             request_id=request_id,
         ):
             return
@@ -809,10 +1249,22 @@ class BotHandlers:
                 session,
                 telegram_user=user,
                 telegram_chat=telegram_chat,
+                locale_hint=locale_hint,
                 request_id=request_id,
             )
+            locale = self._resolve_locale(
+                chat=chat,
+                locale_hint=locale_hint,
+                telegram_chat=telegram_chat,
+            )
             if chat is None:
-                await query.edit_message_text("You do not have subscriptions in this chat.")
+                await query.edit_message_text(
+                    self._translate(
+                        "handlers.unsubscribe.callback.no_chat",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
                 self._debug(
                     "Unsubscribe callback missing chat binding",
                     request_id=request_id,
@@ -843,9 +1295,7 @@ class BotHandlers:
                 subscription_id=getattr(subscription, "id", None),
                 extra={
                     "meta_has_other_subscribers": has_other_subscribers,
-                    "meta_channel_title": sanitize_label(
-                        getattr(channel, "channel_name", None)
-                    ),
+                    "meta_channel_title": sanitize_label(getattr(channel, "channel_name", None)),
                 },
             )
 
@@ -853,7 +1303,13 @@ class BotHandlers:
                 chat.id, channel_id, request_id=request_id
             )
             if not success:
-                await query.edit_message_text("❌ Failed to remove subscription.")
+                await query.edit_message_text(
+                    self._translate(
+                        "handlers.unsubscribe.callback.remove_failed",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
                 self._error(
                     "Failed to remove subscription during callback",
                     request_id=request_id,
@@ -867,17 +1323,31 @@ class BotHandlers:
             webhook_success = True
             if not has_other_subscribers and channel is not None:
                 await query.edit_message_text(
-                    "✅ Removing subscription...\n🔗 Cleaning up notifications..."
+                    self._translate(
+                        "handlers.unsubscribe.callback.removing",
+                        locale=locale,
+                        request_id=request_id,
+                    )
                 )
                 webhook_success = await self.manage_channel_webhook(
                     channel.channel_id, "unsubscribe", request_id=request_id
                 )
-                if webhook_success and subscription is not None:
+                if subscription is not None:
                     subscription.webhook_url = None
                     await session.commit()
+                await channel_repo.clear_webhook_metadata(
+                    channel_id=channel.channel_id,
+                    request_id=request_id,
+                )
 
             if webhook_success:
-                await query.edit_message_text("✅ Subscription removed successfully!")
+                await query.edit_message_text(
+                    self._translate(
+                        "handlers.unsubscribe.callback.removed",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
                 self._info(
                     "Subscription removed via callback",
                     request_id=request_id,
@@ -888,7 +1358,11 @@ class BotHandlers:
                 )
             else:
                 await query.edit_message_text(
-                    "✅ Subscription removed, but failed to clean up notifications."
+                    self._translate(
+                        "handlers.unsubscribe.callback.removed_with_warning",
+                        locale=locale,
+                        request_id=request_id,
+                    )
                 )
                 self._warning(
                     "Webhook cleanup failed after unsubscribe",
@@ -912,6 +1386,11 @@ class BotHandlers:
         user = update.effective_user
         message = update.message or update.effective_message
         telegram_chat = update.effective_chat
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
+        locale = locale_hint
         if user is None or message is None or telegram_chat is None:
             self._warning(
                 "handle_youtube_url missing required context",
@@ -926,6 +1405,7 @@ class BotHandlers:
             telegram_chat=telegram_chat,
             telegram_user=user,
             on_denied=message.reply_text,
+            locale=locale_hint,
             request_id=correlation_id,
         ):
             return
@@ -939,13 +1419,23 @@ class BotHandlers:
             extra={"meta_url_preview": sanitize_label(url)},
         )
 
-        processing_msg = await message.reply_text("🔍 Processing YouTube URL...")
+        processing_msg = await message.reply_text(
+            self._translate(
+                "handlers.subscribe.processing",
+                locale=locale,
+                request_id=correlation_id,
+            )
+        )
 
         try:
             result = await self.youtube_api.resolve_url(url, request_id=correlation_id)
             if not result:
                 await processing_msg.edit_text(
-                    "❌ Could not process this YouTube URL. Please check the URL and try again."
+                    self._translate(
+                        "handlers.subscribe.resolve_failed",
+                        locale=locale,
+                        request_id=correlation_id,
+                    )
                 )
                 self._warning(
                     "Unable to resolve YouTube URL",
@@ -971,7 +1461,13 @@ class BotHandlers:
                     session,
                     telegram_chat=telegram_chat,
                     db_user_id=db_user.id,
-                     request_id=correlation_id,
+                    request_id=correlation_id,
+                    preferred_locale=locale_hint,
+                )
+                locale = self._resolve_locale(
+                    chat=chat,
+                    locale_hint=locale_hint,
+                    telegram_chat=telegram_chat,
                 )
 
                 if result.get("type") == "video":
@@ -989,8 +1485,13 @@ class BotHandlers:
                     )
                     if existing:
                         await processing_msg.edit_text(
-                            f"ℹ️ You're already subscribed to **{channel_info['title']}**\n"
-                            f"(Found via video: {video_info['title']})",
+                            self._translate(
+                                "handlers.subscribe.video.already_subscribed",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                                video_title=video_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         self._debug(
@@ -1022,13 +1523,21 @@ class BotHandlers:
                     webhook_success = True
                     if not has_other_subscribers:
                         await processing_msg.edit_text(
-                            f"✅ Subscribing to **{channel_info['title']}**...\n🔗 Setting up notifications...",
+                            self._translate(
+                                "handlers.subscribe.video.subscribing",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         webhook_success = await self.manage_channel_webhook(
                             channel_info["id"], "subscribe", request_id=correlation_id
                         )
-                        if webhook_success and subscription.webhook_url != settings.webhook_callback_url:
+                        if (
+                            webhook_success
+                            and subscription.webhook_url != settings.webhook_callback_url
+                        ):
                             subscription.webhook_url = settings.webhook_callback_url
                             await session.commit()
                     else:
@@ -1050,9 +1559,13 @@ class BotHandlers:
 
                     if webhook_success:
                         await processing_msg.edit_text(
-                            f"✅ Successfully subscribed to **{channel_info['title']}**!\n"
-                            f"(Found via video: {video_info['title']})\n\n"
-                            "You'll receive notifications when new videos are uploaded.",
+                            self._translate(
+                                "handlers.subscribe.video.success",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                                video_title=video_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         self._info(
@@ -1065,9 +1578,13 @@ class BotHandlers:
                         )
                     else:
                         await processing_msg.edit_text(
-                            f"⚠️ Subscribed to **{channel_info['title']}** but couldn't set up real-time notifications.\n"
-                            f"(Found via video: {video_info['title']})\n\n"
-                            "You may experience delays in notifications.",
+                            self._translate(
+                                "handlers.subscribe.video.warning",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                                video_title=video_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         self._warning(
@@ -1081,7 +1598,11 @@ class BotHandlers:
 
                 elif result.get("type") == "playlist":
                     await processing_msg.edit_text(
-                        "ℹ️ Playlist subscriptions are not yet supported. Please subscribe to the channel instead."
+                        self._translate(
+                            "handlers.subscribe.playlist_not_supported",
+                            locale=locale,
+                            request_id=correlation_id,
+                        )
                     )
                     self._warning(
                         "Playlist subscriptions not supported",
@@ -1105,7 +1626,12 @@ class BotHandlers:
                     )
                     if existing:
                         await processing_msg.edit_text(
-                            f"ℹ️ You're already subscribed to **{channel_info['title']}**.",
+                            self._translate(
+                                "handlers.subscribe.channel.already_subscribed",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         self._debug(
@@ -1137,13 +1663,21 @@ class BotHandlers:
                     webhook_success = True
                     if not has_other_subscribers:
                         await processing_msg.edit_text(
-                            f"✅ Subscribing to **{channel_info['title']}**...\n🔗 Setting up notifications...",
+                            self._translate(
+                                "handlers.subscribe.channel.subscribing",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         webhook_success = await self.manage_channel_webhook(
                             channel_info["id"], "subscribe", request_id=correlation_id
                         )
-                        if webhook_success and subscription.webhook_url != settings.webhook_callback_url:
+                        if (
+                            webhook_success
+                            and subscription.webhook_url != settings.webhook_callback_url
+                        ):
                             subscription.webhook_url = settings.webhook_callback_url
                             await session.commit()
                     else:
@@ -1165,8 +1699,12 @@ class BotHandlers:
 
                     if webhook_success:
                         await processing_msg.edit_text(
-                            f"✅ Successfully subscribed to **{channel_info['title']}**!\n\n"
-                            "You'll receive notifications when new videos are uploaded.",
+                            self._translate(
+                                "handlers.subscribe.channel.success",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         self._info(
@@ -1179,8 +1717,12 @@ class BotHandlers:
                         )
                     else:
                         await processing_msg.edit_text(
-                            f"⚠️ Subscribed to **{channel_info['title']}** but couldn't set up real-time notifications.\n\n"
-                            "You may experience delays in notifications.",
+                            self._translate(
+                                "handlers.subscribe.channel.warning",
+                                locale=locale,
+                                request_id=correlation_id,
+                                channel_name=channel_info["title"],
+                            ),
                             parse_mode="Markdown",
                         )
                         self._warning(
@@ -1201,7 +1743,11 @@ class BotHandlers:
                 user=user,
             )
             await processing_msg.edit_text(
-                "❌ An error occurred while processing the URL. Please try again later."
+                self._translate(
+                    "handlers.subscribe.error",
+                    locale=locale,
+                    request_id=correlation_id,
+                )
             )
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1210,6 +1756,15 @@ class BotHandlers:
         message = update.message
         user = update.effective_user
         telegram_chat = update.effective_chat
+        locale_hint = self._infer_locale_hint(
+            telegram_chat=telegram_chat,
+            telegram_user=user,
+        )
+        locale = self._resolve_locale(
+            chat=None,
+            locale_hint=locale_hint,
+            telegram_chat=telegram_chat,
+        )
         if message is None or user is None or telegram_chat is None:
             self._warning(
                 "Received message update without required context",
@@ -1250,12 +1805,14 @@ class BotHandlers:
                         "meta_url_preview": sanitize_label(youtube_url),
                     },
                 )
-                await self.handle_youtube_url(
-                    update, context, youtube_url, request_id=request_id
-                )
+                await self.handle_youtube_url(update, context, youtube_url, request_id=request_id)
             elif is_private_chat:
                 await message.reply_text(
-                    "I found a YouTube link in your message, but couldn't extract the URL. Please send just the URL."
+                    self._translate(
+                        "handlers.message.unable_to_extract_url",
+                        locale=locale,
+                        request_id=request_id,
+                    )
                 )
                 self._warning(
                     "Unable to extract URL from text message",
@@ -1266,8 +1823,11 @@ class BotHandlers:
                 )
         elif is_private_chat:
             await message.reply_text(
-                "Send me a YouTube URL to subscribe to a channel!\n"
-                "Or use /help to see available commands."
+                self._translate(
+                    "handlers.message.prompt_private",
+                    locale=locale,
+                    request_id=request_id,
+                )
             )
             self._debug(
                 "Prompted user for YouTube URL",
@@ -1288,7 +1848,13 @@ def setup_handlers(application: Application, youtube_api: YouTubeAPI) -> BotHand
     application.add_handler(CommandHandler("subscribe", handlers.subscribe_command))
     application.add_handler(CommandHandler("list", handlers.list_command))
     application.add_handler(CommandHandler("unsubscribe", handlers.unsubscribe_command))
-    application.add_handler(CallbackQueryHandler(handlers.handle_unsubscribe_callback))
+    application.add_handler(CommandHandler("language", handlers.language_command))
+    application.add_handler(
+        CallbackQueryHandler(handlers.handle_language_callback, pattern="^lang::")
+    )
+    application.add_handler(
+        CallbackQueryHandler(handlers.handle_unsubscribe_callback, pattern="^(unsub_|cancel$)")
+    )
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message)
     )

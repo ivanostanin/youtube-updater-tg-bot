@@ -125,6 +125,7 @@ deactivate
 - **Webhook management**: Automated registration/unregistration with PubSubHubbub
 - **Update logging**: Track and store updates for watched channels
 - **Stateless design**: External DBMS or regular SQLite backups to S3 with restore on startup
+- **Localization**: Built-in translations (English, Russian, German) with per-chat `/language` command and `DEFAULT_LOCALE` environment flag
 
 ### User Stories
 - Subscribe to YouTube channels/videos/playlists and receive update notifications

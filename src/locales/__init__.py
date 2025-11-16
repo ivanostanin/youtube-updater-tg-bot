@@ -1,0 +1,1 @@
+"""Localization resource package."""

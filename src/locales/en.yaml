@@ -1,0 +1,170 @@
+handlers:
+  start:
+    welcome: |-
+      🎬 Welcome to YouTube Updater Bot!
+
+      I can help you subscribe to YouTube channels and get notifications when new videos are uploaded.
+
+      Available commands:
+      /subscribe <YouTube URL> - Subscribe to a channel, video, or playlist
+      /list - Show your subscriptions
+      /unsubscribe - Remove a subscription
+      /language - Choose your preferred language
+      /help - Show this help message
+
+      Just send me a YouTube URL to get started!
+  help:
+    text: |-
+      🎬 YouTube Updater Bot Commands:
+
+      /start - Start the bot
+      /subscribe <URL> - Subscribe to a YouTube channel/video/playlist
+      /list - Show your active subscriptions
+      /unsubscribe - Remove subscriptions
+      /language - Select your preferred language
+      /help - Show this help
+
+      You can also send a YouTube URL directly!
+
+      Supported URL formats:
+      • Channel: youtube.com/channel/CHANNEL_ID
+      • Channel: youtube.com/@username
+      • Video: youtube.com/watch?v=VIDEO_ID
+      • Playlist: youtube.com/playlist?list=PLAYLIST_ID
+  subscribe:
+    missing_url: |-
+      Please provide a YouTube URL.
+      Example: /subscribe https://youtube.com/@channelname
+    processing: "🔍 Processing YouTube URL..."
+    resolve_failed: "❌ Could not process this YouTube URL. Please check the URL and try again."
+    playlist_not_supported: "ℹ️ Playlist subscriptions are not yet supported. Please subscribe to the channel instead."
+    error: "❌ An error occurred while processing the URL. Please try again later."
+    video:
+      already_subscribed: |-
+        ℹ️ You're already subscribed to **{channel_name}**
+        (Found via video: {video_title})
+      subscribing: |-
+        ✅ Subscribing to **{channel_name}**...
+        🔗 Setting up notifications...
+      success: |-
+        ✅ Successfully subscribed to **{channel_name}**!
+        (Found via video: {video_title})
+
+        You'll receive notifications when new videos are uploaded.
+      warning: |-
+        ⚠️ Subscribed to **{channel_name}** but couldn't set up real-time notifications.
+        (Found via video: {video_title})
+
+        You may experience delays in notifications.
+    channel:
+      already_subscribed: "ℹ️ You're already subscribed to **{channel_name}**."
+      subscribing: |-
+        ✅ Subscribing to **{channel_name}**...
+        🔗 Setting up notifications...
+      success: |-
+        ✅ Successfully subscribed to **{channel_name}**!
+
+        You'll receive notifications when new videos are uploaded.
+      warning: |-
+        ⚠️ Subscribed to **{channel_name}** but couldn't set up real-time notifications.
+
+        You may experience delays in notifications.
+  list:
+    no_subscriptions: "You don't have any subscriptions yet."
+    no_active_subscriptions: "You don't have any active subscriptions."
+  unsubscribe:
+    no_subscriptions: "You don't have any subscriptions to remove."
+    no_active_subscriptions: "You don't have any active subscriptions."
+    cancel_button: "Cancel"
+    select_prompt: "Select a subscription to remove:"
+    callback:
+      missing_data: "Unable to process your request (missing data)."
+      cancelled: "Cancelled."
+      unknown_action: "Unknown action."
+      parse_error: "Unable to parse subscription identifier."
+      missing_context: "Unable to identify user or chat for this action."
+      no_chat: "You do not have subscriptions in this chat."
+      remove_failed: "❌ Failed to remove subscription."
+      removing: |-
+        ✅ Removing subscription...
+        🔗 Cleaning up notifications...
+      removed: "✅ Subscription removed successfully!"
+      removed_with_warning: "✅ Subscription removed, but failed to clean up notifications."
+  acl:
+    missing_chat: "I couldn't identify which chat triggered this command."
+    service_unavailable: "I can't verify admin permissions for this chat right now. Please try again later."
+    missing_chat_id: "I couldn't identify the target chat for this action."
+  message:
+    unable_to_extract_url: "I found a YouTube link in your message, but couldn't extract the URL. Please send just the URL."
+    prompt_private: |-
+      Send me a YouTube URL to subscribe to a channel!
+      Or use /help to see available commands.
+  language:
+    prompt: |-
+      🌐 Select your preferred language.
+
+      Current: {current_language}
+    invalid_selection: "Unable to use that language option. Please try again."
+    missing_context: "I couldn't identify the chat for this selection."
+    missing_chat: "No chat record found for this selection."
+    already_selected: "Language is already set to {language_name}."
+    updated: "✅ Language updated to {language_name}."
+    option:
+      en: "English (en)"
+      ru: "Русский (ru)"
+      de: "Deutsch (de)"
+    name:
+      en: "English"
+      ru: "Русский"
+      de: "Deutsch"
+
+acl:
+  missing_user: "I couldn't identify the user running this command. Please issue the command from your personal account while a member of this chat."
+  admin_only: "Only chat administrators can manage subscriptions here."
+
+formatters:
+  subscription:
+    header:
+      private: "📋 Your subscriptions:"
+      group: "📋 Subscriptions shared with {chat_title}:"
+      supergroup: "📋 Subscriptions for {chat_title}:"
+      channel: "📋 Channels tracked for {chat_title}:"
+    unnamed:
+      group: "this group"
+      supergroup: "this supergroup"
+      channel: "this channel"
+    item_line: "• {channel_name}"
+    item_link: "  {channel_url}"
+    footer: "Use {command} to remove a channel."
+  group_prompt:
+    shared: |-
+      💬 Keep the conversation going with {chat_title}.
+      Ask for thoughts, share highlights, or schedule a watch party!
+    channel: |-
+      📣 Share this update with {chat_title} and pin it if it's important.
+      💡 Add your own summary so followers know why it matters.
+    shared_fallback: "everyone here"
+    channel_fallback: "everyone here"
+
+notifications:
+  video:
+    heading: "🎬 **New Video Alert!**"
+    channel: "📺 **Channel:** {channel_name}"
+    video: "🎥 **Video:** {video_title}"
+    description: "📝 **Description:** {video_description}"
+    watch: "🔗 **Watch:** {video_url}"
+    published: "📅 Published: {published_at}"
+  subscription:
+    private_title: "✅ **Subscription Confirmed!**"
+    shared_title: "✅ **Chat Subscription Activated!**"
+    private_body: "You'll receive notifications when new videos are uploaded."
+    shared_body: "Everyone in {chat_title} will see updates from this YouTube channel."
+    default_audience: "this chat"
+    message: |-
+      {intro}
+
+      **Channel:** {channel_name}
+      {context_line}
+
+      Channel URL: {channel_url}
+  error: "❌ **Error:** {error_message}"

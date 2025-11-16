@@ -1,0 +1,170 @@
+handlers:
+  start:
+    welcome: |-
+      🎬 Willkommen beim YouTube Updater Bot!
+
+      Ich helfe dir, YouTube-Kanäle zu abonnieren und Benachrichtigungen über neue Videos zu erhalten.
+
+      Verfügbare Befehle:
+      /subscribe <YouTube URL> – Kanal, Video oder Playlist abonnieren
+      /list – Deine Abonnements anzeigen
+      /unsubscribe – Ein Abonnement entfernen
+      /language – Sprache auswählen
+      /help – Diese Hilfe anzeigen
+
+      Sende einfach einen YouTube-Link, um zu starten!
+  help:
+    text: |-
+      🎬 Befehle des YouTube Updater Bot:
+
+      /start – Bot starten
+      /subscribe <URL> – YouTube-Kanal/Video/Playlist abonnieren
+      /list – Aktive Abonnements anzeigen
+      /unsubscribe – Abonnement entfernen
+      /language – Sprache wählen
+      /help – Hilfe anzeigen
+
+      Du kannst auch direkt einen YouTube-Link senden!
+
+      Unterstützte Formate:
+      • Kanal: youtube.com/channel/CHANNEL_ID
+      • Kanal: youtube.com/@username
+      • Video: youtube.com/watch?v=VIDEO_ID
+      • Playlist: youtube.com/playlist?list=PLAYLIST_ID
+  subscribe:
+    missing_url: |-
+      Bitte gib eine YouTube-URL an.
+      Beispiel: /subscribe https://youtube.com/@channelname
+    processing: "🔍 Verarbeite YouTube-URL..."
+    resolve_failed: "❌ Diese URL konnte nicht verarbeitet werden. Bitte überprüfe den Link und versuche es erneut."
+    playlist_not_supported: "ℹ️ Playlist-Abonnements werden noch nicht unterstützt. Bitte abonniere den Kanal direkt."
+    error: "❌ Beim Verarbeiten der URL ist ein Fehler aufgetreten. Bitte später erneut versuchen."
+    video:
+      already_subscribed: |-
+        ℹ️ Du hast **{channel_name}** bereits abonniert
+        (gefunden über Video: {video_title})
+      subscribing: |-
+        ✅ Abonniere **{channel_name}**...
+        🔗 Richte Benachrichtigungen ein...
+      success: |-
+        ✅ **{channel_name}** erfolgreich abonniert!
+        (gefunden über Video: {video_title})
+
+        Du erhältst Benachrichtigungen über neue Uploads.
+      warning: |-
+        ⚠️ **{channel_name}** wurde abonniert, aber Echtzeit-Benachrichtigungen konnten nicht aktiviert werden.
+        (gefunden über Video: {video_title})
+
+        Benachrichtigungen können verzögert eintreffen.
+    channel:
+      already_subscribed: "ℹ️ Du hast **{channel_name}** bereits abonniert."
+      subscribing: |-
+        ✅ Abonniere **{channel_name}**...
+        🔗 Richte Benachrichtigungen ein...
+      success: |-
+        ✅ **{channel_name}** erfolgreich abonniert!
+
+        Du erhältst Benachrichtigungen über neue Uploads.
+      warning: |-
+        ⚠️ **{channel_name}** wurde abonniert, aber Echtzeit-Benachrichtigungen konnten nicht aktiviert werden.
+
+        Benachrichtigungen können verzögert eintreffen.
+  list:
+    no_subscriptions: "Du hast noch keine Abonnements."
+    no_active_subscriptions: "Keine aktiven Abonnements gefunden."
+  unsubscribe:
+    no_subscriptions: "In diesem Chat gibt es keine Abonnements zum Entfernen."
+    no_active_subscriptions: "Keine aktiven Abonnements vorhanden."
+    cancel_button: "Abbrechen"
+    select_prompt: "Wähle ein Abonnement zum Entfernen:"
+    callback:
+      missing_data: "Anfrage kann nicht verarbeitet werden (fehlende Daten)."
+      cancelled: "Abgebrochen."
+      unknown_action: "Unbekannte Aktion."
+      parse_error: "Abonnement-ID konnte nicht gelesen werden."
+      missing_context: "Benutzer oder Chat konnten für diese Aktion nicht ermittelt werden."
+      no_chat: "In diesem Chat befinden sich keine Abonnements."
+      remove_failed: "❌ Abonnement konnte nicht entfernt werden."
+      removing: |-
+        ✅ Entferne Abonnement...
+        🔗 Säubere Benachrichtigungen...
+      removed: "✅ Abonnement erfolgreich entfernt!"
+      removed_with_warning: "✅ Abonnement entfernt, aber Benachrichtigungen konnten nicht bereinigt werden."
+  acl:
+    missing_chat: "Der Auslöser-Chat konnte nicht ermittelt werden."
+    service_unavailable: "Admin-Rechte können momentan nicht geprüft werden. Bitte später erneut versuchen."
+    missing_chat_id: "Der Zielchat für diese Aktion konnte nicht ermittelt werden."
+  message:
+    unable_to_extract_url: "Ich habe einen YouTube-Link gefunden, konnte ihn aber nicht extrahieren. Bitte sende nur die URL."
+    prompt_private: |-
+      Sende mir eine YouTube-URL, um einen Kanal zu abonnieren!
+      Oder nutze /help, um die Befehle anzuzeigen.
+  language:
+    prompt: |-
+      🌐 Bitte wähle deine bevorzugte Sprache.
+
+      Aktuell: {current_language}
+    invalid_selection: "Diese Sprachoption kann nicht verwendet werden. Bitte erneut versuchen."
+    missing_context: "Für diese Auswahl konnte kein Chat ermittelt werden."
+    missing_chat: "Für diese Auswahl existiert kein Chat-Datensatz."
+    already_selected: "Die Sprache ist bereits auf {language_name} gesetzt."
+    updated: "✅ Sprache auf {language_name} geändert."
+    option:
+      en: "English (en)"
+      ru: "Русский (ru)"
+      de: "Deutsch (de)"
+    name:
+      en: "English"
+      ru: "Русский"
+      de: "Deutsch"
+
+acl:
+  missing_user: "Der Benutzer konnte nicht ermittelt werden. Bitte sende den Befehl mit deinem eigenen Konto in diesem Chat."
+  admin_only: "Nur Chat-Administratoren können hier Abonnements verwalten."
+
+formatters:
+  subscription:
+    header:
+      private: "📋 Deine Abonnements:"
+      group: "📋 Gemeinsame Abonnements in {chat_title}:"
+      supergroup: "📋 Abonnements für {chat_title}:"
+      channel: "📋 Verfolgte Kanäle für {chat_title}:"
+    unnamed:
+      group: "diesem Chat"
+      supergroup: "dieser Supergruppe"
+      channel: "diesem Kanal"
+    item_line: "• {channel_name}"
+    item_link: "  {channel_url}"
+    footer: "Nutze {command}, um einen Kanal zu entfernen."
+  group_prompt:
+    shared: |-
+      💬 Halte das Gespräch mit {chat_title} am Laufen.
+      Stelle Fragen, teile Highlights oder plane ein gemeinsames Anschauen!
+    channel: |-
+      📣 Teile dieses Update mit {chat_title} und pinne es bei Bedarf.
+      💡 Ergänze eine kurze Zusammenfassung, damit alle wissen, warum es wichtig ist.
+    shared_fallback: "allen hier"
+    channel_fallback: "allen hier"
+
+notifications:
+  video:
+    heading: "🎬 **Neues Video!**"
+    channel: "📺 **Kanal:** {channel_name}"
+    video: "🎥 **Video:** {video_title}"
+    description: "📝 **Beschreibung:** {video_description}"
+    watch: "🔗 **Ansehen:** {video_url}"
+    published: "📅 Veröffentlicht am: {published_at}"
+  subscription:
+    private_title: "✅ **Abonnement bestätigt!**"
+    shared_title: "✅ **Chat-Abonnement aktiviert!**"
+    private_body: "Du erhältst Benachrichtigungen, sobald neue Videos erscheinen."
+    shared_body: "Alle Mitglieder von {chat_title} erhalten Updates zu diesem YouTube-Kanal."
+    default_audience: "diesem Chat"
+    message: |-
+      {intro}
+
+      **Kanal:** {channel_name}
+      {context_line}
+
+      Kanal-URL: {channel_url}
+  error: "❌ **Fehler:** {error_message}"

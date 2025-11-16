@@ -942,3 +942,63 @@ async def test_check_if_channel_has_other_subscribers_false(
     )
 
     assert result is False
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Language Command")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_language_command_renders_keyboard(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Language command should present localized prompt with keyboard."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_update.effective_user.language_code = "en"
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.language_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_called_once()
+    args, kwargs = mock_telegram_update.message.reply_text.call_args
+    assert "Select your preferred language" in args[0]
+    markup = kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    assert markup.inline_keyboard[0][0].callback_data == "lang::en"
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Language Command")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_language_callback_updates_chat_locale(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Callback should persist the chosen locale."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_update.effective_user.language_code = "en"
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.language_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.reset_mock()
+    query = MagicMock()
+    query.data = "lang::ru"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.message = MagicMock()
+    query.message.chat = mock_telegram_update.effective_chat
+    mock_telegram_update.callback_query = query
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.handle_language_callback(mock_telegram_update, mock_telegram_context)
+
+    chat_row = await async_db_session.execute(select(Chat))
+    chat = chat_row.scalar_one()
+    assert chat.preferred_locale == "ru"
+    query.answer.assert_awaited()

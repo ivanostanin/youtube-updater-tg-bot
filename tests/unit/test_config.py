@@ -161,3 +161,34 @@ class TestSettingsIntegration:
         assert hasattr(settings, "webhook_port")
         assert hasattr(settings, "webhook_path")
         assert hasattr(settings, "log_level")
+
+
+class TestSettingsLocalization:
+    """Tests for localization-related settings."""
+
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.14-UNIT-LOC-001")
+    @allure.label("priority", "P1")
+    @pytest.mark.unit
+    def test_default_locale_env_is_normalized(self, monkeypatch):
+        """DEFAULT_LOCALE should be case-insensitive and validated."""
+        monkeypatch.setenv("DEFAULT_LOCALE", "RU")
+        settings_obj = Settings()
+        assert settings_obj.default_locale == "ru"
+
+    @allure.feature(FEATURE)
+    @allure.story(STORY)
+    @allure.label("test_id", "1.14-UNIT-LOC-002")
+    @allure.label("priority", "P1")
+    @pytest.mark.unit
+    def test_default_locale_invalid_value(self, monkeypatch):
+        """Unsupported locale values should raise validation errors."""
+        monkeypatch.setenv("DEFAULT_LOCALE", "jp")
+        with pytest.raises(ValidationError):
+            Settings()
+        monkeypatch.setenv("DEFAULT_LOCALE", "en")
+        settings = Settings()
+        assert hasattr(settings, "pubsub_lease_renewal_interval")
+        assert hasattr(settings, "pubsub_lease_renewal_threshold")
+        assert hasattr(settings, "pubsub_lease_renewal_batch_limit")

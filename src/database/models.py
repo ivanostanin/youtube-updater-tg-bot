@@ -30,6 +30,7 @@ class Chat(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     chat_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
     chat_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    preferred_locale: Mapped[str | None] = mapped_column(String(5), nullable=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

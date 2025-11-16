@@ -207,12 +207,14 @@ class WebhookHandlers:
                     try:
                         chat = subscription.chat
 
+                        locale = chat.preferred_locale or settings.default_locale
                         message_id = await self.notification_service.send_video_notification(
                             chat_telegram_id=chat.chat_id,
                             video=video,
                             channel=channel,
                             chat_title=chat.title,
                             chat_type=chat.chat_type,
+                            locale=locale,
                             request_id=correlation_id,
                         )
 

@@ -9,6 +9,7 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 - Subscribe to YouTube channels, videos, or playlists
 - Receive instant notifications for new video uploads
 - Manage subscriptions with simple commands
+- Multilingual responses (English, Russian, German) with per-chat `/language` control
 - Support for various YouTube URL formats
 - Webhook-based real-time notifications via PubSubHubbub
 
@@ -43,6 +44,7 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 - `/subscribe <YouTube URL>` - Subscribe to a channel/video/playlist
 - `/list` - Show your active subscriptions
 - `/unsubscribe` - Remove subscriptions
+- `/language` - Select your preferred language for this chat
 - `/help` - Show available commands
 
 ## Supported YouTube URL Formats
@@ -63,6 +65,7 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 | `WEBHOOK_HOST` | Webhook server host | `localhost` |
 | `WEBHOOK_PORT` | Webhook server port | `8000` |
 | `LOG_LEVEL` | Logging level (`DEBUG` enables structured tracing) | `INFO` |
+| `DEFAULT_LOCALE` | Fallback locale for new chats (`en`, `ru`, `de`) | `en` |
 
 ## Debugging Playbook
 

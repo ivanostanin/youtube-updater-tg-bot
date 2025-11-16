@@ -1,0 +1,170 @@
+handlers:
+  start:
+    welcome: |-
+      🎬 Добро пожаловать в YouTube Updater Bot!
+
+      Я помогу подписаться на YouTube-каналы и присылать уведомления о новых роликах.
+
+      Доступные команды:
+      /subscribe <YouTube URL> — подписаться на канал, ролик или плейлист
+      /list — показать подписки
+      /unsubscribe — удалить подписку
+      /language — выбрать язык
+      /help — показать эту подсказку
+
+      Просто отправьте ссылку на YouTube — и мы начнём!
+  help:
+    text: |-
+      🎬 Команды YouTube Updater Bot:
+
+      /start — запустить бота
+      /subscribe <URL> — подписаться на канал/ролик/плейлист
+      /list — показать активные подписки
+      /unsubscribe — удалить подписку
+      /language — выбрать язык
+      /help — справка
+
+      Можно также просто отправить ссылку на YouTube!
+
+      Поддерживаемые форматы:
+      • Канал: youtube.com/channel/CHANNEL_ID
+      • Канал: youtube.com/@username
+      • Видео: youtube.com/watch?v=VIDEO_ID
+      • Плейлист: youtube.com/playlist?list=PLAYLIST_ID
+  subscribe:
+    missing_url: |-
+      Пожалуйста укажите ссылку на YouTube.
+      Пример: /subscribe https://youtube.com/@channelname
+    processing: "🔍 Обрабатываю ссылку..."
+    resolve_failed: "❌ Не удалось обработать ссылку. Проверьте URL и попробуйте ещё раз."
+    playlist_not_supported: "ℹ️ Подписка на плейлисты пока недоступна. Подпишитесь на канал напрямую."
+    error: "❌ При обработке ссылки произошла ошибка. Повторите попытку позже."
+    video:
+      already_subscribed: |-
+        ℹ️ Вы уже подписаны на **{channel_name}**
+        (найдено через видео: {video_title})
+      subscribing: |-
+        ✅ Подписываюсь на **{channel_name}**...
+        🔗 Настраиваю уведомления...
+      success: |-
+        ✅ Подписка на **{channel_name}** оформлена!
+        (найдено через видео: {video_title})
+
+        Вы будете получать уведомления о новых роликах.
+      warning: |-
+        ⚠️ Подписка на **{channel_name}** оформлена, но не удалось подключить мгновенные уведомления.
+        (найдено через видео: {video_title})
+
+        Возможны задержки в доставке уведомлений.
+    channel:
+      already_subscribed: "ℹ️ Вы уже подписаны на **{channel_name}**."
+      subscribing: |-
+        ✅ Подписываюсь на **{channel_name}**...
+        🔗 Настраиваю уведомления...
+      success: |-
+        ✅ Подписка на **{channel_name}** оформлена!
+
+        Вы будете получать уведомления о новых роликах.
+      warning: |-
+        ⚠️ Подписка на **{channel_name}** оформлена, но не удалось подключить мгновенные уведомления.
+
+        Возможны задержки в доставке уведомлений.
+  list:
+    no_subscriptions: "У вас ещё нет подписок."
+    no_active_subscriptions: "Активных подписок не найдено."
+  unsubscribe:
+    no_subscriptions: "В этом чате нет подписок для удаления."
+    no_active_subscriptions: "Активных подписок не найдено."
+    cancel_button: "Отмена"
+    select_prompt: "Выберите подписку для удаления:"
+    callback:
+      missing_data: "Невозможно обработать запрос (не хватает данных)."
+      cancelled: "Отменено."
+      unknown_action: "Неизвестное действие."
+      parse_error: "Не удалось распознать идентификатор подписки."
+      missing_context: "Не удалось определить пользователя или чат для этого действия."
+      no_chat: "В этом чате нет подписок."
+      remove_failed: "❌ Не удалось удалить подписку."
+      removing: |-
+        ✅ Удаляю подписку...
+        🔗 Отключаю уведомления...
+      removed: "✅ Подписка успешно удалена!"
+      removed_with_warning: "✅ Подписка удалена, но очистить уведомления не удалось."
+  acl:
+    missing_chat: "Не удалось определить чат, из которого пришла команда."
+    service_unavailable: "Сейчас не могу проверить права администратора. Попробуйте позже."
+    missing_chat_id: "Не удалось определить целевой чат для этого действия."
+  message:
+    unable_to_extract_url: "Ссылка на YouTube найдена, но не распознана. Пожалуйста отправьте только URL."
+    prompt_private: |-
+      Отправьте ссылку на YouTube, чтобы подписаться на канал!
+      Или используйте /help для просмотра команд.
+  language:
+    prompt: |-
+      🌐 Выберите язык интерфейса.
+
+      Текущий: {current_language}
+    invalid_selection: "Эту языковую опцию использовать нельзя. Попробуйте снова."
+    missing_context: "Не удалось определить чат для этого выбора."
+    missing_chat: "Не найден чат для сохранения языка."
+    already_selected: "Язык уже установлен: {language_name}."
+    updated: "✅ Язык обновлён: {language_name}."
+    option:
+      en: "English (en)"
+      ru: "Русский (ru)"
+      de: "Deutsch (de)"
+    name:
+      en: "English"
+      ru: "Русский"
+      de: "Deutsch"
+
+acl:
+  missing_user: "Не удалось определить пользователя. Отправьте команду от своего аккаунта внутри этого чата."
+  admin_only: "Только администраторы чата могут управлять подписками."
+
+formatters:
+  subscription:
+    header:
+      private: "📋 Ваши подписки:"
+      group: "📋 Общие подписки в чате «{chat_title}»:"
+      supergroup: "📋 Подписки для «{chat_title}»:"
+      channel: "📋 Каналы для «{chat_title}»:"
+    unnamed:
+      group: "этом чате"
+      supergroup: "этом супергрупповом чате"
+      channel: "этом канале"
+    item_line: "• {channel_name}"
+    item_link: "  {channel_url}"
+    footer: "Используйте {command}, чтобы удалить канал."
+  group_prompt:
+    shared: |-
+      💬 Поддержите обсуждение с {chat_title}.
+      Задавайте вопросы, делитесь мыслями или организуйте совместный просмотр!
+    channel: |-
+      📣 Поделитесь обновлением с {chat_title} и при необходимости закрепите сообщение.
+      💡 Добавьте краткое описание, чтобы подписчики поняли, почему это важно.
+    shared_fallback: "участниками"
+    channel_fallback: "подписчиками"
+
+notifications:
+  video:
+    heading: "🎬 **Новый ролик!**"
+    channel: "📺 **Канал:** {channel_name}"
+    video: "🎥 **Видео:** {video_title}"
+    description: "📝 **Описание:** {video_description}"
+    watch: "🔗 **Смотреть:** {video_url}"
+    published: "📅 Опубликовано: {published_at}"
+  subscription:
+    private_title: "✅ **Подписка подтверждена!**"
+    shared_title: "✅ **Подписка для чата активирована!**"
+    private_body: "Вы будете получать уведомления о новых роликах."
+    shared_body: "Все участники {chat_title} будут получать обновления этого YouTube-канала."
+    default_audience: "этого чата"
+    message: |-
+      {intro}
+
+      **Канал:** {channel_name}
+      {context_line}
+
+      Ссылка: {channel_url}
+  error: "❌ **Ошибка:** {error_message}"

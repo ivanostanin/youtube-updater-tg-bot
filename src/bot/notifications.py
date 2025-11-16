@@ -3,6 +3,7 @@ from telegram.error import TelegramError
 
 from ..database.models import Video, YouTubeChannel
 from ..utils.formatters import format_group_discussion_prompt
+from ..utils.i18n import translate
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 
 
@@ -23,6 +24,7 @@ class NotificationService:
         *,
         chat_title: str | None,
         chat_type: str,
+        locale: str,
         request_id: str | None = None,
     ) -> int | None:
         """Send a video notification to a chat."""
@@ -33,6 +35,8 @@ class NotificationService:
                 channel,
                 chat_title=chat_title,
                 chat_type=chat_type,
+                locale=locale,
+                request_id=correlation_id,
             )
 
             sent_message = await self.bot.send_message(
@@ -94,6 +98,8 @@ class NotificationService:
         *,
         chat_title: str | None,
         chat_type: str,
+        locale: str,
+        request_id: str | None = None,
     ) -> str:
         """Format a video notification message."""
         title = video.title if len(video.title) <= 100 else f"{video.title[:97]}..."
@@ -103,26 +109,58 @@ class NotificationService:
             description = f"{description[:197]}..."
 
         message_parts = [
-            "🎬 **New Video Alert!**",
+            translate("notifications.video.heading", locale=locale, request_id=request_id),
             "",
-            f"📺 **Channel:** {channel.channel_name}",
-            f"🎥 **Video:** {title}",
+            translate(
+                "notifications.video.channel",
+                locale=locale,
+                request_id=request_id,
+                channel_name=channel.channel_name,
+            ),
+            translate(
+                "notifications.video.video",
+                locale=locale,
+                request_id=request_id,
+                video_title=title,
+            ),
         ]
 
         if description:
-            message_parts.extend([f"📝 **Description:** {description}", ""])
+            message_parts.extend(
+                [
+                    translate(
+                        "notifications.video.description",
+                        locale=locale,
+                        request_id=request_id,
+                        video_description=description,
+                    ),
+                    "",
+                ]
+            )
 
         message_parts.extend(
             [
-                f"🔗 **Watch:** {video.url}",
+                translate(
+                    "notifications.video.watch",
+                    locale=locale,
+                    request_id=request_id,
+                    video_url=video.url,
+                ),
                 "",
-                f"📅 Published: {video.published_at.strftime('%B %d, %Y at %I:%M %p UTC')}",
+                translate(
+                    "notifications.video.published",
+                    locale=locale,
+                    request_id=request_id,
+                    published_at=video.published_at.strftime("%B %d, %Y at %I:%M %p UTC"),
+                ),
             ]
         )
 
         group_prompt = format_group_discussion_prompt(
             chat_type=chat_type,
             chat_title=chat_title,
+            locale=locale,
+            request_id=request_id,
         )
         if group_prompt:
             message_parts.extend(["", group_prompt])
@@ -136,26 +174,46 @@ class NotificationService:
         *,
         chat_title: str | None,
         chat_type: str,
+        locale: str,
         request_id: str | None = None,
     ) -> int | None:
         """Send subscription confirmation message."""
         correlation_id = request_id or new_request_id()
         try:
-            if chat_type == "private":
-                intro = "✅ **Subscription Confirmed!**"
-                context_line = "You'll receive notifications when new videos are uploaded."
-            else:
-                intro = "✅ **Chat Subscription Activated!**"
-                audience = chat_title or "this chat"
-                context_line = (
-                    f"Everyone in {audience} will see updates from this YouTube channel."
-                )
+            intro_key = (
+                "notifications.subscription.private_title"
+                if chat_type == "private"
+                else "notifications.subscription.shared_title"
+            )
+            context_key = (
+                "notifications.subscription.private_body"
+                if chat_type == "private"
+                else "notifications.subscription.shared_body"
+            )
 
-            message = (
-                f"{intro}\n\n"
-                f"**Channel:** {channel.channel_name}\n"
-                f"{context_line}\n\n"
-                f"Channel URL: {channel.channel_url}"
+            intro = translate(intro_key, locale=locale, request_id=correlation_id)
+            audience = chat_title
+            if chat_type != "private":
+                audience = audience or translate(
+                    "notifications.subscription.default_audience",
+                    locale=locale,
+                    request_id=correlation_id,
+                )
+            context_line = translate(
+                context_key,
+                locale=locale,
+                request_id=correlation_id,
+                chat_title=audience or "",
+            )
+
+            message = translate(
+                "notifications.subscription.message",
+                locale=locale,
+                request_id=correlation_id,
+                intro=intro,
+                channel_name=channel.channel_name,
+                context_line=context_line,
+                channel_url=channel.channel_url,
             )
 
             sent_message = await self.bot.send_message(
@@ -198,12 +256,18 @@ class NotificationService:
         chat_telegram_id: str,
         error_message: str,
         *,
+        locale: str,
         request_id: str | None = None,
     ) -> int | None:
         """Send error notification to chat."""
         correlation_id = request_id or new_request_id()
         try:
-            message = f"❌ **Error:** {error_message}"
+            message = translate(
+                "notifications.error",
+                locale=locale,
+                request_id=correlation_id,
+                error_message=error_message,
+            )
 
             sent_message = await self.bot.send_message(
                 chat_id=chat_telegram_id,
