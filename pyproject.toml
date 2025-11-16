@@ -47,6 +47,7 @@ dependencies = [
     "feedparser==6.0.12",
     "boto3>=1.40.74",
     "pyyaml>=6.0.3",
+    "prometheus-client>=0.23.1",
 ]
 
 [project.optional-dependencies]

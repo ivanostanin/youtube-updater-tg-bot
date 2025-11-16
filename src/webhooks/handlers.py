@@ -15,6 +15,7 @@ from ..database.repository import (
     SubscriptionRepository,
     VideoRepository,
 )
+from ..utils import metrics
 from ..utils.config import settings
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 from .constants import DEFAULT_PUBSUB_LEASE_SECONDS, TOPIC_CHANNEL_QUERY_PARAM
@@ -39,6 +40,7 @@ class WebhookHandlers:
         channel_id = self._extract_channel_id_from_topic(topic)
         callback_url = str(request.url.replace(query=None))
         lease_seconds = DEFAULT_PUBSUB_LEASE_SECONDS
+        verification_result = "ignored"
 
         if mode == "subscribe":
             if lease_seconds_raw:
@@ -81,6 +83,7 @@ class WebhookHandlers:
                         request_id=request_id,
                     )
                     if stored:
+                        verification_result = "stored"
                         logger.info(
                             "Recorded webhook subscription verification",
                             extra=log_context(
@@ -93,6 +96,7 @@ class WebhookHandlers:
                             ),
                         )
                     else:
+                        verification_result = "missing_channel"
                         logger.warning(
                             "Channel missing while recording webhook verification",
                             extra=log_context(
@@ -108,6 +112,7 @@ class WebhookHandlers:
                         request_id=request_id,
                     )
                     if cleared:
+                        verification_result = "cleared"
                         logger.info(
                             "Cleared webhook lease metadata after unsubscribe verification",
                             extra=log_context(
@@ -118,6 +123,7 @@ class WebhookHandlers:
                             ),
                         )
                     else:
+                        verification_result = "missing_channel"
                         logger.warning(
                             "Channel missing while clearing webhook metadata",
                             extra=log_context(
@@ -127,18 +133,30 @@ class WebhookHandlers:
                                 meta_mode=mode,
                             ),
                         )
-                else:
+                elif channel_id is None:
+                    verification_result = "invalid_topic"
                     logger.warning(
-                        "Received webhook challenge without actionable metadata",
+                        "PubSub verification missing channel identifier",
                         extra=log_context(
                             request_id=request_id,
                             operation=operation,
                             meta_mode=mode or "missing",
                             meta_topic=sanitize_label(topic) if topic else None,
-                            channel_id=channel_id,
+                        ),
+                    )
+                else:
+                    verification_result = "unsupported_mode"
+                    logger.warning(
+                        "Received unsupported PubSub verification mode",
+                        extra=log_context(
+                            request_id=request_id,
+                            operation=operation,
+                            meta_mode=mode or "missing",
+                            meta_topic=sanitize_label(topic) if topic else None,
                         ),
                     )
         except Exception as exc:  # pragma: no cover - defensive logging
+            verification_result = "error"
             logger.error(
                 "Failed to persist webhook lease metadata",
                 extra=log_context(
@@ -150,6 +168,8 @@ class WebhookHandlers:
                     meta_error=sanitize_label(str(exc)),
                 ),
             )
+        finally:
+            metrics.record_webhook_verification(mode, verification_result)
 
         return Response(challenge, media_type="text/plain")
 

@@ -9,10 +9,11 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.database.repository import ChannelRepository, ChatRepository, SubscriptionRepository
+from src.utils import metrics
 from src.webhooks.lease_refresher import WebhookLeaseRefresher
 
 
-pytestmark = [pytest.mark.unit]
+pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("reset_pubsub_metrics")]
 
 
 class _FakeManager:
@@ -27,6 +28,15 @@ class _FakeManager:
 
     async def close(self) -> None:
         self.closed = True
+
+
+def _metric_value(counter, labels: dict[str, str]) -> float:
+    """Return the sample value for the given labels."""
+    for metric in counter.collect():
+        for sample in metric.samples:
+            if all(sample.labels.get(key) == value for key, value in labels.items()):
+                return sample.value
+    return 0.0
 
 
 @allure.feature("Webhooks")
@@ -86,6 +96,21 @@ async def test_lease_refresher_renews_candidates(async_db_engine, monkeypatch):
             expires_at = expires_at.replace(tzinfo=UTC)
         assert expires_at > datetime.now(UTC)
 
+    assert (
+        _metric_value(
+            metrics.WEBHOOK_LEASE_REFRESH_TOTAL,
+            {"result": "attempt"},
+        )
+        == 1.0
+    )
+    assert (
+        _metric_value(
+            metrics.WEBHOOK_LEASE_REFRESH_TOTAL,
+            {"result": "success"},
+        )
+        == 1.0
+    )
+
 
 @allure.feature("Webhooks")
 @allure.story("Lease refresher")
@@ -131,3 +156,11 @@ async def test_lease_refresher_skips_when_no_candidates(async_db_engine, monkeyp
 
     await refresher.run()
     assert fake_manager.subscribe_calls == []
+
+    assert (
+        _metric_value(
+            metrics.WEBHOOK_LEASE_REFRESH_TOTAL,
+            {"result": "skipped"},
+        )
+        == 1.0
+    )

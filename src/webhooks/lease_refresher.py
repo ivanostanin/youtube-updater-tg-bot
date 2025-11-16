@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..database.repository import ChannelRepository, LeaseRenewalCandidate
+from ..utils import metrics
 from ..utils.logging import get_logger, log_context, new_request_id
 from .constants import DEFAULT_PUBSUB_LEASE_SECONDS
 from .pubsub import PubSubManager
@@ -52,6 +53,7 @@ class WebhookLeaseRefresher:
             )
 
             if not candidates:
+                metrics.record_lease_refresh("skipped")
                 logger.debug(
                     "Lease refresher found no expiring channels",
                     extra=log_context(
@@ -96,6 +98,7 @@ class WebhookLeaseRefresher:
         lease_seconds = candidate.webhook_lease_seconds or self._default_lease_seconds
 
         attempt = 0
+        metrics.record_lease_refresh("attempt")
         while attempt < self._max_attempts:
             attempt += 1
             success = await manager.subscribe_to_channel(candidate.channel_id)
@@ -111,6 +114,7 @@ class WebhookLeaseRefresher:
                     request_id=request_id,
                 )
                 if recorded:
+                    metrics.record_lease_refresh("success")
                     logger.info(
                         "Renewed webhook lease for channel",
                         extra=log_context(
@@ -124,6 +128,7 @@ class WebhookLeaseRefresher:
                         ),
                     )
                 else:
+                    metrics.record_lease_refresh("missing_channel")
                     logger.warning(
                         "Lease refreshed but channel metadata missing; skipping persistence",
                         extra=log_context(
@@ -136,6 +141,7 @@ class WebhookLeaseRefresher:
 
             await asyncio.sleep(self._retry_delay * attempt)
 
+        metrics.record_lease_refresh("failure")
         logger.error(
             "Failed to renew webhook lease after retries",
             extra=log_context(

@@ -288,3 +288,13 @@ def sample_video_data() -> dict:
         "published_at": datetime(2024, 1, 1, 12, 0, 0),
         "thumbnail_url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/default.jpg",
     }
+
+
+@pytest.fixture
+def reset_pubsub_metrics():
+    """Ensure PubSub counters are cleared before and after each test."""
+    from src.utils.metrics import reset_pubsub_metrics as _reset  # local import avoids cycles
+
+    _reset()
+    yield
+    _reset()

@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
-from typing import cast
 
 import sqlalchemy as sa
 from alembic import op
@@ -31,18 +29,25 @@ def _backfill_callback_urls(connection: Connection) -> None:
     subscriptions = metadata.tables["subscriptions"]
 
     # Build lookup of latest known webhook callback per channel.
-    callback_rows = cast(
-        Sequence[tuple[int, str | None]],
-        connection.execute(
-            select(
-                subscriptions.c.channel_id,
-                sa.func.max(subscriptions.c.webhook_url),
-            )
-            .where(subscriptions.c.webhook_url.is_not(None))
-            .group_by(subscriptions.c.channel_id)
-        ).all(),
-    )
-    callback_lookup: dict[int, str | None] = dict(callback_rows)
+    callback_rows = connection.execute(
+        select(
+            subscriptions.c.channel_id,
+            subscriptions.c.webhook_url,
+            subscriptions.c.created_at,
+            subscriptions.c.id,
+        )
+        .where(subscriptions.c.webhook_url.is_not(None))
+        .order_by(
+            subscriptions.c.channel_id,
+            subscriptions.c.created_at.desc(),
+            subscriptions.c.id.desc(),
+        )
+    ).all()
+
+    callback_lookup: dict[int, str | None] = {}
+    for channel_id, webhook_url, *_ in callback_rows:
+        if channel_id not in callback_lookup and webhook_url:
+            callback_lookup[channel_id] = webhook_url
 
     fallback = _fallback_callback_url()
 

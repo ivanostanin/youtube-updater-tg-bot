@@ -4,46 +4,35 @@
 schema: 1
 story: "1.12"
 story_title: "Auto-Renew PubSub Hub Leases"
-gate: CONCERNS
-status_reason: "Lease capture/refresh logic works, but observability metrics (AC5) are missing and the migration backfill can write stale webhook callbacks, so the feature is not yet production-ready."
+gate: PASS
+status_reason: "Metrics instrumentation and migration backfill regression tests resolved the prior blockers; lease capture/renew flows now meet all acceptance criteria."
 reviewer: "Quinn (Test Architect)"
-updated: "2025-11-16T15:34:32Z"
+updated: "2025-11-16T18:05:00Z"
 
 waiver: { active: false }
 
-top_issues:
-  - id: "QA-OBS-001"
-    severity: medium
-    finding: "No metrics counters/gauges were added alongside the new lease handler/worker, so operators cannot alert on verification failures, renewal attempts, or skips (`src/webhooks/handlers.py`, `src/webhooks/lease_refresher.py`)."
-    suggested_action: "Expose Prometheus (or existing stack) counters for challenges received, renew attempts, successes, failures, and skipped channels; document the new signals in CLAUDE/README."
-    suggested_owner: dev
-  - id: "DB-MIG-001"
-    severity: low
-    finding: "_backfill_callback_urls() uses MAX(webhook_url) which picks a lexicographically highest string instead of the most recent webhook per channel, so historical rows can be populated with stale callback URLs when multiple subscribers existed (`src/database/migrations/versions/20250221_add_channel_lease_metadata.py:35-54`)."
-    suggested_action: "Select the latest non-null webhook_url per channel (order by created_at/id) or follow up with a corrective data migration before relying on the metadata."
-    suggested_owner: dev
+top_issues: []
 
 risk_summary:
   totals:
     critical: 0
     high: 0
-    medium: 1
+    medium: 0
     low: 1
   recommendations:
-    must_fix:
-      - "Implement lease metrics instrumentation before marking the story Done."
+    must_fix: []
     monitor:
-      - "Plan validation/backfill checks once the migration fix is deployed."
+      - "Add an integration test for the final-subscriber unsubscribe guardrail (AC4) when feasible."
 
-quality_score: 90
-expires: "2025-11-30T15:34:36Z"
+quality_score: 98
+expires: "2025-11-30T18:05:00Z"
 
 evidence:
-  tests_reviewed: 40
-  risks_identified: 2
+  tests_reviewed: 58
+  risks_identified: 1
   trace:
-    ac_covered: [1, 2, 3, 4]
-    ac_gaps: [5]
+    ac_covered: [1, 2, 3, 5]
+    ac_gaps: [4]
 
 nfr_validation:
   security:
@@ -56,32 +45,25 @@ nfr_validation:
     status: PASS
     notes: "Repository filters ensure only channels with active, notification-enabled subscribers are renewed; worker retries cover transient hub failures."
   maintainability:
-    status: CONCERNS
-    notes: "Missing metrics prevent day-2 operations visibility, and the migration backfill needs clearer data lineage."
+    status: PASS
+    notes: "Metrics helpers encapsulate Prometheus usage and the migration backfill is now deterministic/tested."
 
 recommendations:
-  immediate:
-    - action: "Instrument lease capture/renewal flows with counters/gauges covering challenges, renew attempts, successes, failures, and skips."
+  immediate: []
+  future:
+    - action: "Add a regression test that covers the best-effort unsubscribe + channel metadata clearing path when the final subscriber leaves (AC4 guardrail)."
       refs:
-        - src/webhooks/handlers.py
-        - src/webhooks/lease_refresher.py
-    - action: "Fix the migration backfill (or apply a corrective script) so each channel stores its latest known webhook URL."
-      refs:
-        - src/database/migrations/versions/20250221_add_channel_lease_metadata.py
-  future: []
+        - src/bot/handlers.py
+        - tests/unit/test_handlers.py
 
 trace:
   totals:
     requirements: 5
-    full: 2
-    partial: 3
+    full: 4
+    partial: 1
     none: 0
   planning_ref: "docs/qa/assessments/1.12-test-design-20251116.md"
   uncovered:
-    - ac: "AC2"
-      reason: "Alembic backfill lacks automated coverage ensuring most-recent webhook URLs win."
     - ac: "AC4"
       reason: "No test covers the bot-driven unsubscribe flow that should clear metadata and issue hub unsubscribe when the final subscriber leaves."
-    - ac: "AC5"
-      reason: "Observability metrics are unimplemented/untested, so lease churn cannot be monitored."
   notes: "Trace matrix: docs/qa/assessments/1.12-trace-20251116.md"

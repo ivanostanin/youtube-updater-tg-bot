@@ -11,11 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.requests import Request
 
 from src.database.models import YouTubeChannel
+from src.utils import metrics
 from src.webhooks.constants import DEFAULT_PUBSUB_LEASE_SECONDS
 from src.webhooks.handlers import WebhookHandlers
 
 
-pytestmark = [pytest.mark.unit]
+pytestmark = [pytest.mark.unit, pytest.mark.usefixtures("reset_pubsub_metrics")]
 
 
 def _build_request(query: str, *, scheme: str = "https", host: str = "testserver") -> Request:
@@ -39,6 +40,15 @@ def _build_request(query: str, *, scheme: str = "https", host: str = "testserver
         return {"type": "http.request", "body": b"", "more_body": False}
 
     return Request(scope, _receive)
+
+
+def _metric_value(counter, labels: dict[str, str]) -> float:
+    """Return the sample value for the given labels."""
+    for metric in counter.collect():
+        for sample in metric.samples:
+            if all(sample.labels.get(key) == value for key, value in labels.items()):
+                return sample.value
+    return 0.0
 
 
 @allure.feature("Webhooks")
@@ -87,6 +97,14 @@ async def test_webhook_handler_stores_lease_metadata(async_db_engine, monkeypatc
             expires_at = expires_at.replace(tzinfo=UTC)
         assert expires_at > datetime.now(UTC)
 
+    assert (
+        _metric_value(
+            metrics.WEBHOOK_VERIFICATION_CHALLENGES,
+            {"mode": "subscribe", "result": "stored"},
+        )
+        == 1.0
+    )
+
 
 @allure.feature("Webhooks")
 @allure.story("Lease metadata")
@@ -133,3 +151,11 @@ async def test_webhook_handler_clears_metadata_on_unsubscribe(async_db_engine, m
         assert channel.webhook_lease_seconds is None
         assert channel.webhook_lease_expires_at is None
         assert channel.webhook_last_verified_at is None
+
+    assert (
+        _metric_value(
+            metrics.WEBHOOK_VERIFICATION_CHALLENGES,
+            {"mode": "unsubscribe", "result": "cleared"},
+        )
+        == 1.0
+    )

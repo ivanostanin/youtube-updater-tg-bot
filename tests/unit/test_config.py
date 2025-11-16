@@ -187,11 +187,12 @@ class TestSettingsLocalization:
         monkeypatch.setenv("DEFAULT_LOCALE", "jp")
         with pytest.raises(ValidationError):
             Settings()
+        # Reset to a known good locale and confirm the config object still exposes pubsub settings.
         monkeypatch.setenv("DEFAULT_LOCALE", "en")
-        settings = Settings()
-        assert hasattr(settings, "pubsub_lease_renewal_interval")
-        assert hasattr(settings, "pubsub_lease_renewal_threshold")
-        assert hasattr(settings, "pubsub_lease_renewal_batch_limit")
+        validated_settings = Settings()
+        assert hasattr(validated_settings, "pubsub_lease_renewal_interval")
+        assert hasattr(validated_settings, "pubsub_lease_renewal_threshold")
+        assert hasattr(validated_settings, "pubsub_lease_renewal_batch_limit")
 
 
 class TestPubSubLeaseRenewal:
