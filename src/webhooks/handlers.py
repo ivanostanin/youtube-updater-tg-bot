@@ -188,7 +188,9 @@ class WebhookHandlers:
                         meta_event="challenge",
                     ),
                 )
-                return Response(challenge, media_type="text/plain")
+                return await self._handle_verification_challenge(
+                    request, challenge, request_id=request_id
+                )
 
             # Handle the actual notification
             body = await request.body()
@@ -397,9 +399,7 @@ class WebhookHandlers:
 
     async def health_check(self, request: Request) -> JSONResponse:
         """Health check endpoint."""
-        return JSONResponse(
-            {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
-        )
+        return JSONResponse({"status": "healthy", "timestamp": datetime.utcnow().isoformat()})
 
 
 def create_webhook_app(notification_service: NotificationService) -> Starlette:

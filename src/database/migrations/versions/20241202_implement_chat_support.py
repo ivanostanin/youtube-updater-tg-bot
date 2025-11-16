@@ -114,9 +114,7 @@ def upgrade() -> None:
 
     connection = op.get_bind()
     metadata = sa.MetaData()
-    metadata.reflect(
-        bind=connection, only=("users", "subscriptions", "notifications", "chats")
-    )
+    metadata.reflect(bind=connection, only=("users", "subscriptions", "notifications", "chats"))
 
     users_table = metadata.tables["users"]
     subscriptions_table = metadata.tables["subscriptions"]
@@ -228,9 +226,7 @@ def downgrade() -> None:
 
     connection = op.get_bind()
     metadata = sa.MetaData()
-    metadata.reflect(
-        bind=connection, only=("users", "subscriptions", "notifications", "chats")
-    )
+    metadata.reflect(bind=connection, only=("users", "subscriptions", "notifications", "chats"))
 
     users_table = metadata.tables["users"]
     subscriptions_table = metadata.tables["subscriptions"]

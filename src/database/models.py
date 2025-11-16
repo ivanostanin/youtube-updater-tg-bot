@@ -65,7 +65,9 @@ class YouTubeChannel(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    subscriptions: Mapped[list[Subscription]] = relationship("Subscription", back_populates="channel")
+    subscriptions: Mapped[list[Subscription]] = relationship(
+        "Subscription", back_populates="channel"
+    )
     videos: Mapped[list[Video]] = relationship("Video", back_populates="channel")
 
 
@@ -74,7 +76,9 @@ class Subscription(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     chat_id: Mapped[int] = mapped_column(Integer, ForeignKey("chats.id"), nullable=False)
-    channel_id: Mapped[int] = mapped_column(Integer, ForeignKey("youtube_channels.id"), nullable=False)
+    channel_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("youtube_channels.id"), nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notification_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -89,7 +93,9 @@ class Video(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     video_id: Mapped[str] = mapped_column(String, unique=True, nullable=False, index=True)
-    channel_id: Mapped[int] = mapped_column(Integer, ForeignKey("youtube_channels.id"), nullable=False)
+    channel_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("youtube_channels.id"), nullable=False
+    )
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str] = mapped_column(String, nullable=False)

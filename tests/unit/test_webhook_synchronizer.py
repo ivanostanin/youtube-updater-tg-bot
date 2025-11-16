@@ -82,7 +82,9 @@ async def test_synchronizer_skips_channels_with_matching_webhook(
     monkeypatch.setattr("src.webhooks.synchronizer.PubSubManager", manager_factory)
     from src.webhooks import synchronizer as synchronizer_module  # noqa: PLC0415
 
-    monkeypatch.setattr(synchronizer_module.settings, "webhook_callback_url", "https://current.example/webhook")
+    monkeypatch.setattr(
+        synchronizer_module.settings, "webhook_callback_url", "https://current.example/webhook"
+    )
 
     sync = WebhookSubscriptionSynchronizer(session_maker)
     await sync.run()
@@ -136,7 +138,9 @@ async def test_synchronizer_updates_channels_with_legacy_webhook(
     monkeypatch.setattr("src.webhooks.synchronizer.PubSubManager", manager_factory)
     from src.webhooks import synchronizer as synchronizer_module  # noqa: PLC0415
 
-    monkeypatch.setattr(synchronizer_module.settings, "webhook_callback_url", "https://new.example/webhook")
+    monkeypatch.setattr(
+        synchronizer_module.settings, "webhook_callback_url", "https://new.example/webhook"
+    )
 
     sync = WebhookSubscriptionSynchronizer(session_maker)
     await sync.run()

@@ -289,12 +289,8 @@ class YouTubeAPI:
         channel_id = self.extract_channel_id(url)
         if channel_id:
             if "@" in url:
-                return await self.get_channel_by_handle(
-                    channel_id, request_id=correlation_id
-                )
-            channel_info = await self.get_channel_by_id(
-                channel_id, request_id=correlation_id
-            )
+                return await self.get_channel_by_handle(channel_id, request_id=correlation_id)
+            channel_info = await self.get_channel_by_id(channel_id, request_id=correlation_id)
             if not channel_info:
                 channel_info = await self.get_channel_by_username(
                     channel_id, request_id=correlation_id

@@ -37,9 +37,7 @@ def _backfill_chat_users(connection: Connection) -> None:
     for row in rows:
         if row.user_pk is None:
             continue
-        connection.execute(
-            sa.update(chats).where(chats.c.id == row.id).values(user_id=row.user_pk)
-        )
+        connection.execute(sa.update(chats).where(chats.c.id == row.id).values(user_id=row.user_pk))
 
 
 def upgrade() -> None:

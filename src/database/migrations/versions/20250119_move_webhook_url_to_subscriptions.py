@@ -59,9 +59,7 @@ def _copy_subscription_webhooks_to_channels(connection: Connection) -> None:
         if webhook_url is None:
             continue
         connection.execute(
-            sa.update(channels)
-            .where(channels.c.id == channel_id)
-            .values(webhook_url=webhook_url)
+            sa.update(channels).where(channels.c.id == channel_id).values(webhook_url=webhook_url)
         )
 
 

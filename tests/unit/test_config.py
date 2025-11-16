@@ -193,8 +193,10 @@ class TestSettingsLocalization:
         assert hasattr(settings, "pubsub_lease_renewal_threshold")
         assert hasattr(settings, "pubsub_lease_renewal_batch_limit")
 
+
 class TestPubSubLeaseRenewal:
     """Tests for PubSub lease renewal."""
+
     @allure.feature(FEATURE)
     @allure.story(LIFECYCLE_STORY)
     @allure.label("test_id", "1.1-UNIT-010")

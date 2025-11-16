@@ -197,7 +197,9 @@ def build_storage_config(
         if args and args.verify_ssl is not None
         else _parse_bool(_env("VERIFY_SSL"), default=True)
     )
-    use_namespace_path = bool(raw_use_namespace_path) if raw_use_namespace_path is not None else False
+    use_namespace_path = (
+        bool(raw_use_namespace_path) if raw_use_namespace_path is not None else False
+    )
     verify_ssl = bool(raw_verify_ssl) if raw_verify_ssl is not None else True
 
     config = ObjectStorageConfig(
