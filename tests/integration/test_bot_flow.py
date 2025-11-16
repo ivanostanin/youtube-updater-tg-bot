@@ -11,7 +11,9 @@ import pytest
 from sqlalchemy import select
 
 from src.bot.handlers import BotHandlers
+from src.bot.notifications import NotificationService
 from src.database.models import Chat, Subscription, User, YouTubeChannel
+from src.webhooks.handlers import WebhookHandlers
 
 
 @allure.feature("Integration")
@@ -124,9 +126,7 @@ async def test_unsubscription_flow_with_webhook_cleanup(
         await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
 
     # Verify webhook was cleaned up
-    handlers.manage_channel_webhook.assert_called_with(
-        "UCtest123", "unsubscribe", request_id=ANY
-    )
+    handlers.manage_channel_webhook.assert_called_with("UCtest123", "unsubscribe", request_id=ANY)
     updated = await async_db_session.execute(
         select(Subscription).where(Subscription.id == subscription.id)
     )
@@ -307,3 +307,45 @@ async def test_webhook_verification_challenge(mock_pubsub_manager):
 
     assert result is not None
     assert "<feed>" in result
+
+
+@allure.feature("Integration")
+@allure.story("Webhook Notifications")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.integration
+async def test_webhook_uses_chat_locale_for_notifications(async_db_session):
+    """Webhook notifications should respect the chat's preferred locale."""
+    notification_service = MagicMock(spec=NotificationService)
+    notification_service.send_video_notification = AsyncMock(return_value=123)
+    handlers = WebhookHandlers(notification_service)
+
+    channel = YouTubeChannel(
+        channel_id="UCtest123",
+        channel_name="Test Channel",
+        channel_url="https://youtube.com/channel/UCtest123",
+    )
+    chat = Chat(
+        chat_id="-100123",
+        chat_type="group",
+        title="Test Group",
+        preferred_locale="de",
+    )
+    subscription = Subscription(chat=chat, channel=channel, is_active=True)
+    async_db_session.add_all([channel, chat, subscription])
+    await async_db_session.commit()
+
+    entry = {
+        "yt_videoid": "abc123",
+        "yt_channelid": channel.channel_id,
+        "title": "Locale Test Video",
+        "link": "https://youtube.com/watch?v=abc123",
+        "published": "2024-12-01T12:00:00Z",
+        "summary": "Beschreibung",
+    }
+
+    with patch("src.webhooks.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.process_video_update(entry, request_id="webhook-locale")
+
+    notification_service.send_video_notification.assert_awaited()
+    kwargs = notification_service.send_video_notification.await_args.kwargs
+    assert kwargs["locale"] == "de"

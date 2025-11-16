@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 
 import feedparser
 from feedparser import FeedParserDict
@@ -16,6 +17,7 @@ from ..database.repository import (
 )
 from ..utils.config import settings
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
+from .constants import DEFAULT_PUBSUB_LEASE_SECONDS, TOPIC_CHANNEL_QUERY_PARAM
 
 
 logger = get_logger(__name__)
@@ -24,6 +26,151 @@ logger = get_logger(__name__)
 class WebhookHandlers:
     def __init__(self, notification_service: NotificationService):
         self.notification_service = notification_service
+
+    async def _handle_verification_challenge(
+        self, request: Request, challenge: str, *, request_id: str
+    ) -> Response:
+        """Persist lease metadata before responding to the PubSub challenge."""
+        operation = "webhook.youtube.challenge"
+        mode = (request.query_params.get("hub.mode") or "").lower()
+        topic = request.query_params.get("hub.topic")
+        lease_seconds_raw = request.query_params.get("hub.lease_seconds")
+        request_ts = datetime.now(UTC)
+        channel_id = self._extract_channel_id_from_topic(topic)
+        callback_url = str(request.url.replace(query=None))
+        lease_seconds = DEFAULT_PUBSUB_LEASE_SECONDS
+
+        if mode == "subscribe":
+            if lease_seconds_raw:
+                try:
+                    lease_seconds = max(int(lease_seconds_raw), 0)
+                except ValueError:
+                    logger.warning(
+                        "Invalid lease_seconds provided by hub, falling back to default",
+                        extra=log_context(
+                            request_id=request_id,
+                            operation=operation,
+                            meta_mode=mode or "missing",
+                            meta_topic=sanitize_label(topic) if topic else None,
+                            meta_raw_lease=lease_seconds_raw,
+                        ),
+                    )
+            else:
+                logger.warning(
+                    "Missing lease_seconds in hub verification; using default duration",
+                    extra=log_context(
+                        request_id=request_id,
+                        operation=operation,
+                        meta_mode=mode or "missing",
+                        meta_topic=sanitize_label(topic) if topic else None,
+                    ),
+                )
+
+        try:
+            async with AsyncSessionLocal() as session:
+                channel_repo = ChannelRepository(session)
+
+                if mode == "subscribe" and channel_id:
+                    expires_at = request_ts + timedelta(seconds=lease_seconds)
+                    stored = await channel_repo.record_webhook_verification(
+                        channel_id=channel_id,
+                        callback_url=callback_url,
+                        lease_seconds=lease_seconds,
+                        lease_expires_at=expires_at,
+                        last_verified_at=request_ts,
+                        request_id=request_id,
+                    )
+                    if stored:
+                        logger.info(
+                            "Recorded webhook subscription verification",
+                            extra=log_context(
+                                request_id=request_id,
+                                operation=operation,
+                                channel_id=channel_id,
+                                meta_mode=mode,
+                                meta_callback=callback_url,
+                                meta_lease_seconds=lease_seconds,
+                            ),
+                        )
+                    else:
+                        logger.warning(
+                            "Channel missing while recording webhook verification",
+                            extra=log_context(
+                                request_id=request_id,
+                                operation=operation,
+                                channel_id=channel_id,
+                                meta_mode=mode,
+                            ),
+                        )
+                elif mode == "unsubscribe" and channel_id:
+                    cleared = await channel_repo.clear_webhook_metadata(
+                        channel_id=channel_id,
+                        request_id=request_id,
+                    )
+                    if cleared:
+                        logger.info(
+                            "Cleared webhook lease metadata after unsubscribe verification",
+                            extra=log_context(
+                                request_id=request_id,
+                                operation=operation,
+                                channel_id=channel_id,
+                                meta_mode=mode,
+                            ),
+                        )
+                    else:
+                        logger.warning(
+                            "Channel missing while clearing webhook metadata",
+                            extra=log_context(
+                                request_id=request_id,
+                                operation=operation,
+                                channel_id=channel_id,
+                                meta_mode=mode,
+                            ),
+                        )
+                else:
+                    logger.warning(
+                        "Received webhook challenge without actionable metadata",
+                        extra=log_context(
+                            request_id=request_id,
+                            operation=operation,
+                            meta_mode=mode or "missing",
+                            meta_topic=sanitize_label(topic) if topic else None,
+                            channel_id=channel_id,
+                        ),
+                    )
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.error(
+                "Failed to persist webhook lease metadata",
+                extra=log_context(
+                    request_id=request_id,
+                    operation=operation,
+                    meta_mode=mode or "missing",
+                    meta_topic=sanitize_label(topic) if topic else None,
+                    channel_id=channel_id,
+                    meta_error=sanitize_label(str(exc)),
+                ),
+            )
+
+        return Response(challenge, media_type="text/plain")
+
+    @staticmethod
+    def _extract_channel_id_from_topic(topic: str | None) -> str | None:
+        """Derive YouTube channel_id from the PubSub topic URL."""
+        if not topic:
+            return None
+
+        parsed = urlparse(topic)
+        query_params = parse_qs(parsed.query)
+        candidates = query_params.get(TOPIC_CHANNEL_QUERY_PARAM)
+        if candidates:
+            return candidates[0]
+
+        # Handle legacy topics missing query parameters.
+        if topic.endswith("="):
+            return None
+        if "channel_id=" in topic:
+            return topic.split("channel_id=")[-1]
+        return None
 
     async def youtube_webhook(self, request: Request) -> Response:
         """Handle YouTube PubSubHubbub webhook notifications."""

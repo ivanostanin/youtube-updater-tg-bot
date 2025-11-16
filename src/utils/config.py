@@ -24,6 +24,18 @@ class Settings(BaseSettings):
         default="en",
         description="Default locale to use when a chat has not selected a language",
     )
+    pubsub_lease_renewal_interval: int = Field(
+        default=3600,
+        description="Interval (seconds) between lease refresher runs",
+    )
+    pubsub_lease_renewal_threshold: int = Field(
+        default=21_600,
+        description="Window (seconds) before expiry when leases should be renewed",
+    )
+    pubsub_lease_renewal_batch_limit: int | None = Field(
+        default=50,
+        description="Maximum number of channels to renew per cycle (None for unlimited)",
+    )
 
     @field_validator("webhook_callback_url")
     @classmethod
@@ -45,6 +57,26 @@ class Settings(BaseSettings):
             return normalized
         allowed = ", ".join(SUPPORTED_LOCALES)
         raise ValueError(f"DEFAULT_LOCALE must be one of: {allowed}")
+
+    @field_validator(
+        "pubsub_lease_renewal_interval",
+        "pubsub_lease_renewal_threshold",
+        mode="after",
+    )
+    @classmethod
+    def validate_positive_interval(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Lease renewal intervals must be positive integers.")
+        return value
+
+    @field_validator("pubsub_lease_renewal_batch_limit", mode="after")
+    @classmethod
+    def validate_batch_limit(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("Lease renewal batch limit must be positive when provided.")
+        return value
 
 
 settings = Settings()

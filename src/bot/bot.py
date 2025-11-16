@@ -6,6 +6,7 @@ from telegram.ext import Application, ContextTypes
 from ..database.database import AsyncSessionLocal, init_db
 from ..utils.config import settings
 from ..utils.logging import setup_logging
+from ..webhooks.lease_refresher import WebhookLeaseRefresher
 from ..webhooks.synchronizer import WebhookSubscriptionSynchronizer
 from ..youtube.api import YouTubeAPI
 from .handlers import setup_handlers
@@ -22,6 +23,7 @@ class YouTubeUpdaterBot:
         self.application: Application | None = None
         self.youtube_api: YouTubeAPI | None = None
         self.notification_service: NotificationService | None = None
+        self.lease_refresher: WebhookLeaseRefresher | None = None
 
     async def initialize(self) -> None:
         """Initialize the bot and all its components."""
@@ -87,6 +89,32 @@ class YouTubeUpdaterBot:
                     heartbeat_callback, interval=300, first=10
                 )  # Every 5 minutes
                 logger.info("Heartbeat logging job scheduled")
+
+                self.lease_refresher = WebhookLeaseRefresher(
+                    AsyncSessionLocal,
+                    webhook_callback_url=settings.webhook_callback_url,
+                    renewal_threshold_seconds=settings.pubsub_lease_renewal_threshold,
+                    batch_limit=settings.pubsub_lease_renewal_batch_limit or None,
+                )
+
+                await self.lease_refresher.run()
+
+                async def lease_refresh_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+                    if self.lease_refresher:
+                        await self.lease_refresher.run()
+
+                job_queue.run_repeating(
+                    lease_refresh_job,
+                    interval=settings.pubsub_lease_renewal_interval,
+                    first=settings.pubsub_lease_renewal_interval // 2 or 30,
+                )
+                logger.info(
+                    "Webhook lease refresher scheduled",
+                    extra={
+                        "meta_interval": settings.pubsub_lease_renewal_interval,
+                        "meta_threshold": settings.pubsub_lease_renewal_threshold,
+                    },
+                )
 
             logger.info("Bot initialization completed successfully")
 

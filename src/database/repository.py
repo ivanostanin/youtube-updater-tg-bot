@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
+import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,6 +15,18 @@ from .models import Chat, Notification, Subscription, User, Video, YouTubeChanne
 
 
 logger = get_logger(__name__)
+
+
+@dataclass(slots=True)
+class LeaseRenewalCandidate:
+    """Lightweight projection for channels that may need lease renewals."""
+
+    channel_pk: int
+    channel_id: str
+    webhook_callback_url: str | None
+    webhook_lease_seconds: int | None
+    webhook_lease_expires_at: datetime | None
+    subscriber_count: int
 
 
 def _repo_log(
@@ -184,6 +198,150 @@ class ChannelRepository:
         result = await self.session.execute(select(YouTubeChannel).where(YouTubeChannel.is_active))
         return list(result.scalars().all())
 
+    async def record_webhook_verification(
+        self,
+        *,
+        channel_id: str,
+        callback_url: str,
+        lease_seconds: int,
+        lease_expires_at: datetime,
+        last_verified_at: datetime | None = None,
+        request_id: str | None = None,
+    ) -> bool:
+        """Persist webhook lease metadata for a channel, if it exists."""
+        correlation_id = request_id or new_request_id()
+        operation = "repository.record_webhook_verification"
+        channel = await self.get_channel_by_id(channel_id)
+        if channel is None:
+            _repo_log(
+                logging.WARNING,
+                "Attempted to record lease metadata for unknown channel",
+                request_id=correlation_id,
+                operation=operation,
+                channel_id=channel_id,
+            )
+            return False
+
+        channel.webhook_callback_url = callback_url
+        channel.webhook_lease_seconds = int(lease_seconds)
+        channel.webhook_lease_expires_at = lease_expires_at
+        channel.webhook_last_verified_at = last_verified_at or datetime.now(UTC)
+        await self.session.commit()
+        _repo_log(
+            logging.INFO,
+            "Recorded webhook lease metadata",
+            request_id=correlation_id,
+            operation=operation,
+            channel_id=channel_id,
+            extra={
+                "meta_callback": callback_url,
+                "meta_lease_seconds": lease_seconds,
+                "meta_lease_expires_at": lease_expires_at.isoformat(),
+            },
+        )
+        return True
+
+    async def clear_webhook_metadata(
+        self,
+        *,
+        channel_id: str,
+        request_id: str | None = None,
+    ) -> bool:
+        """Clear webhook lease metadata when we unsubscribe or lose all subscribers."""
+        correlation_id = request_id or new_request_id()
+        operation = "repository.clear_webhook_metadata"
+        channel = await self.get_channel_by_id(channel_id)
+        if channel is None:
+            _repo_log(
+                logging.WARNING,
+                "Attempted to clear lease metadata for unknown channel",
+                request_id=correlation_id,
+                operation=operation,
+                channel_id=channel_id,
+            )
+            return False
+
+        channel.webhook_callback_url = None
+        channel.webhook_lease_seconds = None
+        channel.webhook_lease_expires_at = None
+        channel.webhook_last_verified_at = None
+        await self.session.commit()
+        _repo_log(
+            logging.INFO,
+            "Cleared webhook lease metadata",
+            request_id=correlation_id,
+            operation=operation,
+            channel_id=channel_id,
+        )
+        return True
+
+    async def get_channels_ready_for_lease_renewal(
+        self,
+        *,
+        threshold: datetime,
+        limit: int | None = None,
+        request_id: str | None = None,
+    ) -> list[LeaseRenewalCandidate]:
+        """Return channels whose leases are missing or expiring before the given threshold."""
+        correlation_id = request_id or new_request_id()
+        operation = "repository.channels_ready_for_renewal"
+
+        stmt = (
+            select(
+                YouTubeChannel.id,
+                YouTubeChannel.channel_id,
+                YouTubeChannel.webhook_callback_url,
+                YouTubeChannel.webhook_lease_seconds,
+                YouTubeChannel.webhook_lease_expires_at,
+                sa.func.count(Subscription.id).label("subscriber_count"),
+            )
+            .join(Subscription, Subscription.channel_id == YouTubeChannel.id)
+            .where(YouTubeChannel.is_active)
+            .where(Subscription.is_active)
+            .where(Subscription.notification_enabled)
+            .group_by(
+                YouTubeChannel.id,
+                YouTubeChannel.channel_id,
+                YouTubeChannel.webhook_callback_url,
+                YouTubeChannel.webhook_lease_seconds,
+                YouTubeChannel.webhook_lease_expires_at,
+            )
+            .having(
+                sa.or_(
+                    YouTubeChannel.webhook_lease_expires_at.is_(None),
+                    YouTubeChannel.webhook_lease_expires_at <= threshold,
+                )
+            )
+            .order_by(YouTubeChannel.webhook_lease_expires_at.asc().nullsfirst())
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
+        result = await self.session.execute(stmt)
+        rows = [
+            LeaseRenewalCandidate(
+                channel_pk=row[0],
+                channel_id=row[1],
+                webhook_callback_url=row[2],
+                webhook_lease_seconds=row[3],
+                webhook_lease_expires_at=row[4],
+                subscriber_count=row[5],
+            )
+            for row in result.all()
+        ]
+        _repo_log(
+            logging.DEBUG,
+            "Loaded channels ready for lease renewal",
+            request_id=correlation_id,
+            operation=operation,
+            extra={
+                "meta_candidate_count": len(rows),
+                "meta_threshold": threshold.isoformat(),
+                "meta_limit": limit,
+            },
+        )
+        return rows
+
 
 class SubscriptionRepository:
     def __init__(self, session: AsyncSession):
@@ -340,9 +498,9 @@ class SubscriptionRepository:
         operation = "repository.get_chat_subscriptions"
         result = await self.session.execute(
             select(Subscription)
-                .where(Subscription.chat_id == chat_id)
-                .where(Subscription.is_active)
-                .options(selectinload(Subscription.channel))
+            .where(Subscription.chat_id == chat_id)
+            .where(Subscription.is_active)
+            .options(selectinload(Subscription.channel))
         )
         subscriptions = list(result.scalars().all())
         _repo_log(
@@ -442,6 +600,36 @@ class SubscriptionRepository:
             extra={"meta_subscriber_count": len(subscribers)},
         )
         return subscribers
+
+    async def channel_has_active_subscribers(
+        self,
+        channel_id: int,
+        *,
+        exclude_chat_id: int | None = None,
+        request_id: str | None = None,
+    ) -> bool:
+        """Return True when the channel has any active, notification-enabled subscribers."""
+        correlation_id = request_id or new_request_id()
+        stmt = (
+            select(sa.func.count(Subscription.id))
+            .where(Subscription.channel_id == channel_id)
+            .where(Subscription.is_active)
+            .where(Subscription.notification_enabled)
+        )
+        if exclude_chat_id is not None:
+            stmt = stmt.where(Subscription.chat_id != exclude_chat_id)
+
+        result = await self.session.execute(stmt)
+        count = result.scalar_one()
+        _repo_log(
+            logging.DEBUG,
+            "Checked channel subscriber count",
+            request_id=correlation_id,
+            operation="repository.channel_has_active_subscribers",
+            channel_id=channel_id,
+            extra={"meta_subscriber_count": count, "meta_excluded_chat_id": exclude_chat_id},
+        )
+        return count > 0
 
 
 class VideoRepository:

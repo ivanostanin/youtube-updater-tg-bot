@@ -117,6 +117,12 @@ deactivate
 - For troubleshooting, download the `allure-report` artifact from the workflow run or regenerate locally using the commands above; publishing to Pages occurs only on successful pushes to `master`.
 - To test the workflow locally, install [act](https://github.com/nektos/act) plus Docker, rely on the checked-in `.actrc` (maps `ubuntu-latest` to `catthehacker/ubuntu:act-latest`), and run `act pull_request -W .github/workflows/main.yml -j tests`. Provide secrets via `-s` flags or `.secrets` when needed.
 
+## PubSub Lease Renewal
+
+- Lease verification requests now persist four metadata columns on `youtube_channels`: `webhook_callback_url`, `webhook_lease_seconds`, `webhook_lease_expires_at`, and `webhook_last_verified_at`.
+- A background `WebhookLeaseRefresher` job runs through `python-telegram-bot`'s `job_queue` every `PUBSUB_LEASE_RENEWAL_INTERVAL` seconds (default 1 hour) and renews channels whose leases expire within `PUBSUB_LEASE_RENEWAL_THRESHOLD` seconds (default 6 hours). Set `PUBSUB_LEASE_RENEWAL_BATCH_LIMIT` to cap how many channels are processed per run (`None` disables the cap).
+- When the last subscriber unsubscribes from a channel, the bot clears lease metadata and issues a best-effort `hub.mode=unsubscribe` so PubSub stops delivering callbacks.
+
 ## Architecture & Features
 
 ### Core Features

@@ -287,18 +287,21 @@ class BotHandlers:
         """Check if a channel has active subscribers other than the provided chat."""
         correlation_id = request_id or new_request_id()
         subscription_repo = SubscriptionRepository(session)
-        if subscribers is None:
-            subscribers = await subscription_repo.get_channel_subscribers(
-                channel_id, request_id=correlation_id
+        if subscribers is not None:
+            has_other = any(sub.chat_id != exclude_chat_id for sub in subscribers)
+        else:
+            has_other = await subscription_repo.channel_has_active_subscribers(
+                channel_id,
+                exclude_chat_id=exclude_chat_id,
+                request_id=correlation_id,
             )
-        has_other = any(sub.chat_id != exclude_chat_id for sub in subscribers)
         self._debug(
             "Computed alternate subscriber count",
             request_id=correlation_id,
             operation="subscription.check_other_subscribers",
             channel_id=str(channel_id),
             extra={
-                "meta_total_subscribers": len(subscribers),
+                "meta_total_subscribers": len(subscribers) if subscribers is not None else None,
                 "meta_has_other": has_other,
                 "meta_excluded_chat_id": exclude_chat_id,
             },
@@ -823,7 +826,13 @@ class BotHandlers:
         )
 
         if not subscriptions:
-            await message.reply_text("You don't have any active subscriptions.")
+            await message.reply_text(
+                self._translate(
+                    "handlers.list.no_active_subscriptions",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
             self._debug(
                 "List command found zero subscriptions",
                 request_id=request_id,
@@ -928,7 +937,13 @@ class BotHandlers:
         )
 
         if not subscriptions:
-            await message.reply_text("You don't have any active subscriptions.")
+            await message.reply_text(
+                self._translate(
+                    "handlers.unsubscribe.no_active_subscriptions",
+                    locale=locale,
+                    request_id=request_id,
+                )
+            )
             self._debug(
                 "Unsubscribe command found zero subscriptions",
                 request_id=request_id,

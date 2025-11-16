@@ -56,6 +56,14 @@ class YouTubeChannel(Base):
     last_checked: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    webhook_callback_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    webhook_lease_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    webhook_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    webhook_last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     subscriptions: Mapped[list[Subscription]] = relationship("Subscription", back_populates="channel")
     videos: Mapped[list[Video]] = relationship("Video", back_populates="channel")

@@ -4,7 +4,7 @@ Tests cover all repository operations including user, channel, subscription,
 video, and notification management, along with model relationships.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import allure
 import pytest
@@ -340,7 +340,9 @@ async def test_subscription_repository_create_subscription_deduplicates(async_db
     channel_repo = ChannelRepository(async_db_session)
     sub_repo = SubscriptionRepository(async_db_session)
 
-    chat = await chat_repo.get_or_create_chat(chat_id="dup-create", chat_type="private", title="Test")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="dup-create", chat_type="private", title="Test"
+    )
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCdupcreate",
         channel_name="Dup Create",
@@ -525,7 +527,9 @@ async def test_subscription_repository_reactivate_subscription(async_db_session)
     channel_repo = ChannelRepository(async_db_session)
     sub_repo = SubscriptionRepository(async_db_session)
 
-    chat = await chat_repo.get_or_create_chat(chat_id="chat-1", chat_type="private", title="Test Chat")
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="chat-1", chat_type="private", title="Test Chat"
+    )
     channel = await channel_repo.get_or_create_channel(
         channel_id="UCreactivate",
         channel_name="Reactivate Channel",
@@ -751,3 +755,113 @@ async def test_notification_repository_get_chat_notifications(async_db_session):
     # Should be ordered by sent_at desc, so most recent first
     assert notifications[0].video_id == video2.id
     assert notifications[1].video_id == video1.id
+
+
+@allure.feature("Database")
+@allure.story("Repositories")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_channel_repository_webhook_metadata_crud(async_db_session):
+    """Ensure webhook lease metadata can be recorded and cleared."""
+    channel_repo = ChannelRepository(async_db_session)
+    channel = await channel_repo.get_or_create_channel(
+        channel_id="UCleases",
+        channel_name="Lease Channel",
+        channel_url="https://youtube.com/channel/UCleases",
+    )
+
+    expires_at = datetime.now(UTC) + timedelta(hours=24)
+    recorded = await channel_repo.record_webhook_verification(
+        channel_id=channel.channel_id,
+        callback_url="https://bot.example/webhook/youtube",
+        lease_seconds=86400,
+        lease_expires_at=expires_at,
+        last_verified_at=datetime.now(UTC),
+    )
+    assert recorded is True
+
+    refreshed = await channel_repo.get_channel_by_id("UCleases")
+    assert refreshed is not None
+    assert refreshed.webhook_callback_url == "https://bot.example/webhook/youtube"
+    assert refreshed.webhook_lease_seconds == 86400
+    assert refreshed.webhook_lease_expires_at == expires_at
+
+    cleared = await channel_repo.clear_webhook_metadata(
+        channel_id="UCleases",
+    )
+    assert cleared is True
+    refreshed = await channel_repo.get_channel_by_id("UCleases")
+    assert refreshed.webhook_callback_url is None
+    assert refreshed.webhook_lease_seconds is None
+    assert refreshed.webhook_lease_expires_at is None
+    assert refreshed.webhook_last_verified_at is None
+
+
+@allure.feature("Database")
+@allure.story("Repositories")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_channel_repository_returns_lease_candidates(async_db_session):
+    """Channels nearing expiry should surface as renewal candidates."""
+    chat_repo = ChatRepository(async_db_session)
+    channel_repo = ChannelRepository(async_db_session)
+    sub_repo = SubscriptionRepository(async_db_session)
+
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="lease-chat", chat_type="private", title="Lease Chat"
+    )
+    channel = await channel_repo.get_or_create_channel(
+        channel_id="UCleaseCandidate",
+        channel_name="Lease Candidate",
+        channel_url="https://youtube.com/channel/UCleaseCandidate",
+    )
+    await sub_repo.create_subscription(chat.id, channel.id)
+
+    soon_expiring = datetime.now(UTC) + timedelta(minutes=30)
+    channel.webhook_callback_url = "https://bot.example/webhook"
+    channel.webhook_lease_seconds = 3600
+    channel.webhook_lease_expires_at = soon_expiring
+    await async_db_session.commit()
+
+    threshold = datetime.now(UTC) + timedelta(hours=2)
+    candidates = await channel_repo.get_channels_ready_for_lease_renewal(threshold=threshold)
+    assert len(candidates) == 1
+    assert candidates[0].channel_id == "UCleaseCandidate"
+
+    # Move expiry beyond threshold to ensure it no longer appears.
+    channel.webhook_lease_expires_at = datetime.now(UTC) + timedelta(hours=4)
+    await async_db_session.commit()
+
+    candidates = await channel_repo.get_channels_ready_for_lease_renewal(threshold=threshold)
+    assert candidates == []
+
+
+@allure.feature("Database")
+@allure.story("Repositories")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_subscription_repository_channel_has_active_subscribers(async_db_session):
+    """Channel subscriber guard should respect exclusions."""
+    chat_repo = ChatRepository(async_db_session)
+    channel_repo = ChannelRepository(async_db_session)
+    sub_repo = SubscriptionRepository(async_db_session)
+
+    chat = await chat_repo.get_or_create_chat(
+        chat_id="guard-chat", chat_type="private", title="Guard Chat"
+    )
+    channel = await channel_repo.get_or_create_channel(
+        channel_id="UCguard",
+        channel_name="Guard Channel",
+        channel_url="https://youtube.com/channel/UCguard",
+    )
+
+    assert (await sub_repo.channel_has_active_subscribers(channel.id, request_id="test")) is False
+
+    await sub_repo.create_subscription(chat.id, channel.id)
+    assert await sub_repo.channel_has_active_subscribers(channel.id) is True
+    assert (
+        await sub_repo.channel_has_active_subscribers(
+            channel.id,
+            exclude_chat_id=chat.id,
+        )
+    ) is False

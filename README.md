@@ -64,8 +64,12 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 | `DATABASE_URL` | Database connection string | `sqlite+aiosqlite:///./bot.db` |
 | `WEBHOOK_HOST` | Webhook server host | `localhost` |
 | `WEBHOOK_PORT` | Webhook server port | `8000` |
+| `WEBHOOK_PATH` | Path for webhook endpoint | `/webhook/youtube` |
 | `LOG_LEVEL` | Logging level (`DEBUG` enables structured tracing) | `INFO` |
 | `DEFAULT_LOCALE` | Fallback locale for new chats (`en`, `ru`, `de`) | `en` |
+| `PUBSUB_LEASE_RENEWAL_INTERVAL` | Seconds between lease renewal scans | `3600` |
+| `PUBSUB_LEASE_RENEWAL_THRESHOLD` | Renew leases that expire within this window (seconds) | `21600` |
+| `PUBSUB_LEASE_RENEWAL_BATCH_LIMIT` | Max channels processed per renewal run (`None` for unlimited) | `50` |
 
 ## Debugging Playbook
 

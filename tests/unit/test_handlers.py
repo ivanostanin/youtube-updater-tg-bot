@@ -56,7 +56,12 @@ async def test_start_command_creates_user(
 @allure.story("Help Command")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_help_command(mock_telegram_update, mock_telegram_context, mock_youtube_api):
+async def test_help_command(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
     """Test /help command returns help text.
 
     Args:
@@ -66,7 +71,8 @@ async def test_help_command(mock_telegram_update, mock_telegram_context, mock_yo
     """
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
-    await handlers.help_command(mock_telegram_update, mock_telegram_context)
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.help_command(mock_telegram_update, mock_telegram_context)
 
     # Verify help message was sent
     mock_telegram_update.message.reply_text.assert_called_once()
@@ -531,9 +537,7 @@ async def test_handle_unsubscribe_callback_denies_non_admin(
         await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
 
     mock_session.assert_not_called()
-    query.answer.assert_awaited_once_with(
-        "Only admins can remove subscriptions.", show_alert=True
-    )
+    query.answer.assert_awaited_once_with("Only admins can remove subscriptions.", show_alert=True)
     query.edit_message_text.assert_not_called()
 
 

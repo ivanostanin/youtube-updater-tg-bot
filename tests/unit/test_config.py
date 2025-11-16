@@ -192,3 +192,44 @@ class TestSettingsLocalization:
         assert hasattr(settings, "pubsub_lease_renewal_interval")
         assert hasattr(settings, "pubsub_lease_renewal_threshold")
         assert hasattr(settings, "pubsub_lease_renewal_batch_limit")
+
+class TestPubSubLeaseRenewal:
+    """Tests for PubSub lease renewal."""
+    @allure.feature(FEATURE)
+    @allure.story(LIFECYCLE_STORY)
+    @allure.label("test_id", "1.1-UNIT-010")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P1")
+    @allure.severity(allure.severity_level.NORMAL)
+    def test_pubsub_settings_defaults(self, monkeypatch):
+        """PubSub lease renewal settings should expose sane defaults."""
+        monkeypatch.delenv("PUBSUB_LEASE_RENEWAL_INTERVAL", raising=False)
+        monkeypatch.delenv("PUBSUB_LEASE_RENEWAL_THRESHOLD", raising=False)
+        monkeypatch.delenv("PUBSUB_LEASE_RENEWAL_BATCH_LIMIT", raising=False)
+
+        settings = Settings()
+        assert settings.pubsub_lease_renewal_interval == 3600
+        assert settings.pubsub_lease_renewal_threshold == 21_600
+        assert settings.pubsub_lease_renewal_batch_limit == 50
+
+    @allure.feature(FEATURE)
+    @allure.story(LIFECYCLE_STORY)
+    @allure.label("test_id", "1.1-UNIT-011")
+    @allure.label("level", "Unit")
+    @allure.label("priority", "P0")
+    @allure.severity(allure.severity_level.CRITICAL)
+    def test_pubsub_settings_validation(self, monkeypatch):
+        """Negative intervals or batch sizes should be rejected."""
+        monkeypatch.setenv("PUBSUB_LEASE_RENEWAL_INTERVAL", "-5")
+        with pytest.raises(ValidationError):
+            Settings()
+
+        monkeypatch.setenv("PUBSUB_LEASE_RENEWAL_INTERVAL", "300")
+        monkeypatch.setenv("PUBSUB_LEASE_RENEWAL_THRESHOLD", "0")
+        with pytest.raises(ValidationError):
+            Settings()
+
+        monkeypatch.setenv("PUBSUB_LEASE_RENEWAL_THRESHOLD", "600")
+        monkeypatch.setenv("PUBSUB_LEASE_RENEWAL_BATCH_LIMIT", "0")
+        with pytest.raises(ValidationError):
+            Settings()
