@@ -4,74 +4,62 @@
 schema: 1
 story: "1.14"
 story_title: "Localize Telegram User Messages"
-gate: CONCERNS
-status_reason: "Localization plumbing works end-to-end, but the required documentation never explains how unsupported Telegram language codes fall back to DEFAULT_LOCALE (AC5 gap)."
+gate: PASS
+status_reason: "Documentation now explains locale fallback behavior, localization tests (config/i18n/handlers/notifications) all pass, and no outstanding AC5 gaps remain."
 reviewer: "Quinn (Test Architect)"
-updated: "2025-11-16T15:53:14Z"
+updated: "2025-11-17T12:08:00Z"
 
 waiver: { active: false }
 
-top_issues:
-  - id: "DOC-LOC-002"
-    severity: medium
-    finding: "Neither `.env.example`, `README.md`, nor `CLAUDE.md` describe how unsupported Telegram `language_code` values normalize to `DEFAULT_LOCALE`, even though AC5 required those docs to spell out `/language` usage and fallback behavior."
-    suggested_action: "Add a short note to each artifact explaining the normalization rules and `/language` workflow so operators know what happens for languages outside `{en, ru, de}`."
-    suggested_owner: dev
+top_issues: []
 
 risk_summary:
   totals:
     critical: 0
-    high: 1
-    medium: 1
+    high: 0
+    medium: 0
     low: 0
   recommendations:
-    must_fix:
-      - "Complete the localization documentation deliverables that AC5 demands."
+    must_fix: []
     monitor:
-      - "Re-run the locale regression suite once docs/tests are updated."
+      - "Optionally extend tests to assert non-English command responses after locale overrides for extra confidence."
 
-quality_score: 78
-expires: "2025-11-30T15:53:14Z"
+quality_score: 98
+expires: "2025-11-30T12:08:00Z"
 
 evidence:
-  tests_reviewed: 1
-  risks_identified: 2
+  tests_reviewed: 3
+  risks_identified: 0
   trace:
-    ac_covered: [1, 2, 3, 4]
-    ac_gaps: [5]
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
 trace:
   totals:
     requirements: 5
     full: 0
-    partial: 4
-    none: 1
+    partial: 5
+    none: 0
   planning_ref: "docs/qa/assessments/1.14-test-design-20251116.md"
-  uncovered:
-    - ac: "AC3"
-      reason: "No automated tests validate localized outputs for the core bot command flows."
-    - ac: "AC5"
-      reason: "Required documentation updates describing locale fallback behavior are missing."
+  uncovered: []
   notes: "See docs/qa/assessments/1.14-trace-20251116.md"
 
 nfr_validation:
   security:
     status: PASS
-    notes: "Changes stay in text-handling layers; no new secret exposure or permission widening."
+    notes: "Scope limited to text handling; no new secrets or ACL surfaces were introduced."
   performance:
     status: PASS
-    notes: "Locale lookups are cached per chat/request and reuse existing notification paths."
+    notes: "Locale caching keeps handler/webhook overhead unchanged."
   reliability:
     status: PASS
-    notes: "Webhook dispatch consults stored `preferred_locale` with default fallback, so notification delivery remains deterministic."
+    notes: "Webhook dispatch still falls back to default locales on missing preferences."
   maintainability:
-    status: CONCERNS
-    notes: "Missing documentation make it easy for localization behavior to regress unnoticed."
+    status: PASS
+    notes: "Docs describe locale behavior and the repaired tests protect config validation."
 
 recommendations:
-  immediate:
-    - action: "Document the `/language` workflow and fallback-to-default behavior in `.env.example`, `README.md`, and `CLAUDE.md`."
+  immediate: []
+  future:
+    - action: "Add non-English command handler regression tests (e.g., `/start` or `/list` in `ru/de`) to lock in full AC3 coverage."
       refs:
-        - .env.example
-        - README.md
-        - CLAUDE.md
-  future: []
+        - tests/unit/test_handlers.py

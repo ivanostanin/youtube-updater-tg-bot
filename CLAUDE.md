@@ -132,6 +132,7 @@ deactivate
 - **Update logging**: Track and store updates for watched channels
 - **Stateless design**: External DBMS or regular SQLite backups to S3 with restore on startup
 - **Localization**: Built-in translations (English, Russian, German) with per-chat `/language` command and `DEFAULT_LOCALE` environment flag
+  - Telegram `language_code` values are normalized (e.g., `en-US` → `en`), and unsupported codes automatically fall back to the default locale while still allowing manual overrides via `/language`.
 
 ### User Stories
 - Subscribe to YouTube channels/videos/playlists and receive update notifications

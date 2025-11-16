@@ -71,6 +71,8 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 | `PUBSUB_LEASE_RENEWAL_THRESHOLD` | Renew leases that expire within this window (seconds) | `21600` |
 | `PUBSUB_LEASE_RENEWAL_BATCH_LIMIT` | Max channels processed per renewal run (`None` for unlimited) | `50` |
 
+Telegram supplies `language_code` values like `en-US` or `es`. These are normalized to one of the supported catalogs (`en`, `ru`, `de`) and any unsupported code gracefully falls back to `DEFAULT_LOCALE`. Chat administrators can always run `/language` to pick English, Русский, or Deutsch via the inline selector if they want to override the automatic choice.
+
 ## Debugging Playbook
 
 1. Set `LOG_LEVEL=DEBUG` in your `.env` (or export it in your shell) before launching the bot: `LOG_LEVEL=DEBUG uv run python -m src.main`.
