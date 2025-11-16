@@ -542,17 +542,22 @@ Sprint 2 (Week 3-4): Core Features & Group Support
   Story 1.11 (Debug Logging - P0) ───────> 5 SP
   Total: 23 SP
 
-Sprint 3 (Week 5-6): Deployment & Monitoring
+Sprint 3 (Week 5-6): Reliability & Localization
+  Story 1.12 (Auto-Renew PubSub Leases) ─> 13 SP ⚠️ NEW RELIABILITY PRIORITY
+  Story 1.14 (Localized User Messaging) ─> 8 SP (i18n + locale storage)
+  Total: 21 SP (1 SP borrowed from buffer)
+
+Sprint 4 (Week 7-8): Deployment & Monitoring
   Story 1.5 (Monitoring) ────────────────> 8 SP
   Story 1.6 (Deploy to Prod) ────────────> 8 SP
   Total: 16 SP
 
-Sprint 4 (Week 7-8): Phase 2 Features
+Sprint 5 (Week 9-10): Phase 2 Features
   Story 1.7 (Auto-deletion) ─────────────> 8 SP
   Story 1.8 (Update History) ────────────> 8 SP
   Total: 16 SP
 
-Sprint 5 (Week 9-10): Optional Scaling
+Sprint 6 (Week 11-12): Optional Scaling
   Story 1.10 (PostgreSQL) ───────────────> 8 SP (only if triggered by metrics)
 ```
 
@@ -570,36 +575,42 @@ Sprint 2:                              │
   1.9 (Groups) <──────────────────┐  ⚠️ P0 Critical
                                   │
   ⚠️ CRITICAL: Story 1.9 schema changes MUST complete
-     before Story 1.6 (Production Deploy) in Sprint 3
+     before Story 1.6 (Production Deploy) in Sprint 4
 
 Sprint 3:
+  1.12 (Lease Auto-Renew) ──┐
+                            ├──> Reliability hardening (runs parallel to critical path)
+  1.14 (Localization) ──────┘
+
+Sprint 4:
   1.5 (Monitoring) ──┐
                      ├──> 1.6 (Deploy) <── REQUIRES Story 1.9 complete
   1.9 (Complete) ────┘
 
-Sprint 4:
+Sprint 5:
   1.7 (Auto-delete) ──┐
                       ├──> Can work in parallel
   1.8 (History) ──────┘
 
-Sprint 5:
+Sprint 6:
   1.10 (PostgreSQL) ──> Only if scaling metrics trigger threshold
 ```
 
 **Critical Path:**
-`Story 1.1 → 1.2 → 1.3 → 1.4 → 1.9 → 1.5 → 1.6`
+`Story 1.1 → 1.2 → 1.3 → 1.4 → 1.9 → 1.12 → 1.14 → 1.5 → 1.6`
 
 **Why Story 1.9 is on critical path:**
-- Production deployment (Story 1.6) **requires** group support (P0 feature)
-- Cannot launch production without this core differentiating feature
-- Deploying private-only, then adding groups later = painful production data migration
-- Schema changes easier with small user base
+- Production deployment (Story 1.6) **requires** group support plus reliable PubSub renewals and localized UX (Stories 1.9, 1.12, 1.14)
+- Cannot launch production without these differentiators; otherwise we risk silent channel drop-offs or English-only messaging for multilingual admins
+- Deploying private-only and English-only, then adding schema/locale changes later, would create painful migrations and retraining
+- Schema changes are easier with a small user base, so we deliberately schedule them before monitoring/deploy milestones
 
 **Velocity Assumptions:**
 - Team capacity: 18-20 SP per 2-week sprint (solo developer or small team)
-- Total epic: ~86 SP = ~4.5 sprints (9 weeks)
-- Buffer: Add 20% for bug fixes, documentation = ~11 weeks total
+- Total epic: ~86 SP baseline + 21 SP acceleration (Stories 1.12 & 1.14) = ~107 SP → ~5.5 sprints (11 weeks)
+- Buffer: Add 20% for bug fixes/documentation = ~13 weeks total when Optional Scaling (Sprint 6) triggers
 - Story 1.10 is now treated as a P0 critical item; include it in near-term planning once scale-trigger metrics approach thresholds
 - Story 1.11 debug logging instrumentation is P0; reserve Sprint 2 capacity or de-scope lower priorities to protect this observability work
+- Sprint 3 overage (21 SP) intentionally consumes 1 SP of buffer; re-evaluate capacity mid-sprint and be ready to trim lower-risk localization backlog items if velocity drops
 
 ---
