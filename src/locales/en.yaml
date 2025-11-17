@@ -6,11 +6,13 @@ handlers:
       I can help you subscribe to YouTube channels and get notifications when new videos are uploaded.
 
       Available commands:
-      /subscribe <YouTube URL> - Subscribe to a channel, video, or playlist
-      /list - Show your subscriptions
-      /unsubscribe - Remove a subscription
-      /language - Choose your preferred language
-      /help - Show this help message
+      /subscribe <URL> - Subscribe to a YouTube channel/video
+      /list - Show your active subscriptions
+      /unsubscribe - Remove subscriptions
+      /channel_link <@channel> - Link a broadcast channel from a DM
+      /channel_select - Switch the active channel context in DMs
+      /language - Select your preferred language
+      /help - Show this help
 
       Just send me a YouTube URL to get started!
   help:
@@ -18,7 +20,7 @@ handlers:
       🎬 YouTube Updater Bot Commands:
 
       /start - Start the bot
-      /subscribe <URL> - Subscribe to a YouTube channel/video/playlist
+      /subscribe <URL> - Subscribe to a YouTube channel/video
       /list - Show your active subscriptions
       /unsubscribe - Remove subscriptions
       /channel_link <@channel> - Link a broadcast channel from a DM
@@ -32,7 +34,6 @@ handlers:
       • Channel: youtube.com/channel/CHANNEL_ID
       • Channel: youtube.com/@username
       • Video: youtube.com/watch?v=VIDEO_ID
-      • Playlist: youtube.com/playlist?list=PLAYLIST_ID
   subscribe:
     missing_url: |-
       Please provide a YouTube URL.

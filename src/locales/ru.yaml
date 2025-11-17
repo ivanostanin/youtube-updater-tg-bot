@@ -6,11 +6,13 @@ handlers:
       Я помогу подписаться на YouTube-каналы и присылать уведомления о новых роликах.
 
       Доступные команды:
-      /subscribe <YouTube URL> — подписаться на канал, ролик или плейлист
-      /list — показать подписки
+      /subscribe <URL> — подписаться на канал/ролик
+      /list — показать активные подписки
       /unsubscribe — удалить подписку
+      /channel_link <@channel> — привязать канал в личном чате
+      /channel_select — выбрать активный канал в DM
       /language — выбрать язык
-      /help — показать эту подсказку
+      /help — справка
 
       Просто отправьте ссылку на YouTube — и мы начнём!
   help:
@@ -18,7 +20,7 @@ handlers:
       🎬 Команды YouTube Updater Bot:
 
       /start — запустить бота
-      /subscribe <URL> — подписаться на канал/ролик/плейлист
+      /subscribe <URL> — подписаться на канал/ролик
       /list — показать активные подписки
       /unsubscribe — удалить подписку
       /channel_link <@channel> — привязать канал в личном чате
@@ -32,7 +34,6 @@ handlers:
       • Канал: youtube.com/channel/CHANNEL_ID
       • Канал: youtube.com/@username
       • Видео: youtube.com/watch?v=VIDEO_ID
-      • Плейлист: youtube.com/playlist?list=PLAYLIST_ID
   subscribe:
     missing_url: |-
       Пожалуйста укажите ссылку на YouTube.

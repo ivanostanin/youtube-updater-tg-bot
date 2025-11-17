@@ -6,11 +6,13 @@ handlers:
       Ich helfe dir, YouTube-Kanäle zu abonnieren und Benachrichtigungen über neue Videos zu erhalten.
 
       Verfügbare Befehle:
-      /subscribe <YouTube URL> – Kanal, Video oder Playlist abonnieren
-      /list – Deine Abonnements anzeigen
-      /unsubscribe – Ein Abonnement entfernen
-      /language – Sprache auswählen
-      /help – Diese Hilfe anzeigen
+      /subscribe <URL> – YouTube-Kanal/Video abonnieren
+      /list – Aktive Abonnements anzeigen
+      /unsubscribe – Abonnement entfernen
+      /channel_link <@channel> – Kanal per DM verknüpfen
+      /channel_select – Aktiven Kanal im DM wählen
+      /language – Sprache wählen
+      /help – Hilfe anzeigen
 
       Sende einfach einen YouTube-Link, um zu starten!
   help:
@@ -18,7 +20,7 @@ handlers:
       🎬 Befehle des YouTube Updater Bot:
 
       /start – Bot starten
-      /subscribe <URL> – YouTube-Kanal/Video/Playlist abonnieren
+      /subscribe <URL> – YouTube-Kanal/Video abonnieren
       /list – Aktive Abonnements anzeigen
       /unsubscribe – Abonnement entfernen
       /channel_link <@channel> – Kanal per DM verknüpfen
@@ -32,7 +34,6 @@ handlers:
       • Kanal: youtube.com/channel/CHANNEL_ID
       • Kanal: youtube.com/@username
       • Video: youtube.com/watch?v=VIDEO_ID
-      • Playlist: youtube.com/playlist?list=PLAYLIST_ID
   subscribe:
     missing_url: |-
       Bitte gib eine YouTube-URL an.
