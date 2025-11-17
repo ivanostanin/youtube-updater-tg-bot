@@ -43,9 +43,13 @@ python -m src.main
 youtube-updater-tg-bot
 
 # Channel administration (DM-only)
-/channel_link @examplechannel          # public channel
-# For private channels: forward any message from the channel, reply /channel_link
-/channel_select
+# 1. Add the bot to the channel as an admin with can_post/can_delete/can_edit rights before linking.
+/channel_link @examplechannel          # public channel username
+# If Telegram cannot resolve the invite link, forward a channel post into the DM or reply to a channel post to bot DM so the forwarded metadata provides the chat_id.
+/channel_select                        # pick or clear the active channel context
+/channel_unlink                        # while active channel is selected, revoke admin links & purge all channel subscriptions/webhooks
+# Forwarding another channel post later instantly switches the context for /subscribe and related commands.
+# Troubleshooting: permission errors mean the bot is missing the required admin flags; context resets usually indicate Telegram revoked the admin role, so rerun /channel_select or re-link after restoring access.
 ```
 
 ### Testing & Code Quality

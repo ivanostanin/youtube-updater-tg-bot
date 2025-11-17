@@ -31,9 +31,7 @@ def upgrade() -> None:
         )
 
     chat_columns = {col["name"] for col in inspector.get_columns("chats")}
-    chat_fk_names = {
-        fk["name"] for fk in inspector.get_foreign_keys("chats") if fk.get("name")
-    }
+    chat_fk_names = {fk["name"] for fk in inspector.get_foreign_keys("chats") if fk.get("name")}
 
     needs_column = any(
         name not in chat_columns
@@ -48,11 +46,17 @@ def upgrade() -> None:
     if needs_column or needs_fk:
         with op.batch_alter_table("chats", recreate="always") as batch_op:
             if "active_channel_chat_id" not in chat_columns:
-                batch_op.add_column(sa.Column("active_channel_chat_id", sa.Integer(), nullable=True))
+                batch_op.add_column(
+                    sa.Column("active_channel_chat_id", sa.Integer(), nullable=True)
+                )
             if "active_channel_selected_at" not in chat_columns:
-                batch_op.add_column(sa.Column("active_channel_selected_at", sa.DateTime(), nullable=True))
+                batch_op.add_column(
+                    sa.Column("active_channel_selected_at", sa.DateTime(), nullable=True)
+                )
             if "active_channel_expires_at" not in chat_columns:
-                batch_op.add_column(sa.Column("active_channel_expires_at", sa.DateTime(), nullable=True))
+                batch_op.add_column(
+                    sa.Column("active_channel_expires_at", sa.DateTime(), nullable=True)
+                )
             if needs_fk:
                 batch_op.create_foreign_key(
                     "fk_chats_active_channel_chat_id",
@@ -67,9 +71,7 @@ def downgrade() -> None:
     inspector = sa.inspect(bind)
 
     chat_columns = {col["name"] for col in inspector.get_columns("chats")}
-    chat_fk_names = {
-        fk["name"] for fk in inspector.get_foreign_keys("chats") if fk.get("name")
-    }
+    chat_fk_names = {fk["name"] for fk in inspector.get_foreign_keys("chats") if fk.get("name")}
 
     needs_column_drop = any(
         name in chat_columns

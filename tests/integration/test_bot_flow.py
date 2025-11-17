@@ -12,7 +12,8 @@ from sqlalchemy import select
 
 from src.bot.handlers import BotHandlers
 from src.bot.notifications import NotificationService
-from src.database.models import Chat, Subscription, User, YouTubeChannel
+from src.database.models import ChannelAdminLink, Chat, Subscription, User, YouTubeChannel
+from src.services import ACLService
 from src.webhooks.handlers import WebhookHandlers
 
 
@@ -66,6 +67,117 @@ async def test_end_to_end_subscription_flow(
     channel_rows = await async_db_session.execute(select(YouTubeChannel))
     channel = channel_rows.scalar_one()
     assert subscriptions[0].channel_id == channel.id
+
+
+@allure.feature("Integration")
+@allure.story("DM Channel Workflows")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.integration
+async def test_dm_channel_link_and_subscription_targets_channel(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Ensure DM channel linking + subscribe flows attach subscriptions to the channel chat."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    handlers.manage_channel_webhook = AsyncMock(return_value=True)
+
+    channel_chat = MagicMock()
+    channel_chat.id = -100987654321
+    channel_chat.type = "channel"
+    channel_chat.title = "Linked Broadcast"
+    channel_chat.username = "linkedbroadcast"
+
+    admin_member = MagicMock()
+    admin_member.status = "administrator"
+    bot_member = MagicMock()
+    bot_member.can_post_messages = True
+    bot_member.can_delete_messages = True
+    bot_member.can_edit_messages = True
+
+    mock_telegram_context.args = ["@linkedbroadcast"]
+    mock_telegram_context.bot.get_chat = AsyncMock(return_value=channel_chat)
+    mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
+    mock_telegram_update.message.reply_text = AsyncMock()
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
+
+    mock_youtube_api.resolve_url = AsyncMock(
+        return_value={
+            "id": "UCdmcontext",
+            "title": "DM Context Channel",
+            "url": "https://youtube.com/channel/UCdmcontext",
+        }
+    )
+    mock_youtube_api.get_feed_url = MagicMock(
+        return_value="https://youtube.com/feeds/videos.xml?channel_id=UCdmcontext"
+    )
+    mock_telegram_context.args = ["https://youtube.com/@dmcontext"]
+    mock_telegram_update.message.reply_text.reset_mock()
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
+
+    channel_rows = await async_db_session.execute(select(Chat).where(Chat.chat_type == "channel"))
+    channel_chat_row = channel_rows.scalar_one()
+    dm_rows = await async_db_session.execute(select(Chat).where(Chat.chat_type == "private"))
+    dm_chat_row = dm_rows.scalar_one()
+
+    assert dm_chat_row.active_channel_chat_id == channel_chat_row.id
+
+    subscriptions_rows = await async_db_session.execute(select(Subscription))
+    subscription = subscriptions_rows.scalar_one()
+    assert subscription.chat_id == channel_chat_row.id
+
+    link_rows = await async_db_session.execute(select(ChannelAdminLink))
+    link = link_rows.scalar_one()
+    assert link.channel_chat_id == channel_chat_row.id
+    assert link.admin_user_id == dm_chat_row.user_id
+
+
+@allure.feature("Integration")
+@allure.story("DM Channel Workflows")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.integration
+async def test_channel_link_denied_without_bot_permissions(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Linking should fail when the bot lacks required channel permissions."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+
+    channel_chat = MagicMock()
+    channel_chat.id = -100777
+    channel_chat.type = "channel"
+    channel_chat.title = "Missing Permissions Channel"
+
+    admin_member = MagicMock()
+    admin_member.status = "administrator"
+    bot_member = MagicMock()
+    bot_member.can_post_messages = False
+    bot_member.can_delete_messages = True
+    bot_member.can_edit_messages = True
+
+    mock_telegram_context.args = ["@permdenied"]
+    mock_telegram_context.bot.get_chat = AsyncMock(return_value=channel_chat)
+    mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
+    mock_telegram_update.message.reply_text = AsyncMock()
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
+
+    channel_rows = await async_db_session.execute(select(Chat).where(Chat.chat_type == "channel"))
+    assert channel_rows.scalars().all() == []
+    link_rows = await async_db_session.execute(select(ChannelAdminLink))
+    assert link_rows.scalars().all() == []
+    reply_text = mock_telegram_update.message.reply_text.call_args.args[0]
+    assert "permissions" in reply_text.lower()
 
 
 @allure.feature("Integration")
@@ -326,8 +438,8 @@ async def test_webhook_uses_chat_locale_for_notifications(async_db_session):
     )
     chat = Chat(
         chat_id="-100123",
-        chat_type="group",
-        title="Test Group",
+        chat_type="channel",
+        title="Broadcast Channel",
         preferred_locale="de",
     )
     subscription = Subscription(chat=chat, channel=channel, is_active=True)
@@ -349,3 +461,70 @@ async def test_webhook_uses_chat_locale_for_notifications(async_db_session):
     notification_service.send_video_notification.assert_awaited()
     kwargs = notification_service.send_video_notification.await_args.kwargs
     assert kwargs["locale"] == "de"
+    assert kwargs["chat_telegram_id"] == chat.chat_id
+    assert kwargs["chat_type"] == "channel"
+
+
+@allure.feature("Integration")
+@allure.story("DM Channel Workflows")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.integration
+async def test_channel_select_revokes_access_when_acl_denied(
+    mock_telegram_update,
+    mock_telegram_context,
+    mock_youtube_api,
+    async_db_session,
+):
+    """Selecting a channel should revoke context if Telegram no longer lists the admin."""
+    mock_acl = MagicMock(spec=ACLService)
+    mock_acl.verify_admin = AsyncMock(return_value=False)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot, acl_service=mock_acl)
+
+    user = User(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="lostaccess",
+        first_name="Lost",
+        last_name="Access",
+    )
+    channel_chat = Chat(
+        chat_id="-100665544",
+        chat_type="channel",
+        title="Revoked Channel",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user=user,
+    )
+    async_db_session.add_all([user, channel_chat, actor_chat])
+    await async_db_session.flush()
+    actor_chat.active_channel_chat_id = channel_chat.id
+    async_db_session.add(
+        ChannelAdminLink(
+            channel_chat_id=channel_chat.id,
+            admin_user_id=user.id,
+            role="administrator",
+        )
+    )
+    await async_db_session.commit()
+
+    query = MagicMock()
+    query.data = f"chanselect::set::{channel_chat.id}"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.message = MagicMock()
+    query.message.chat = mock_telegram_update.effective_chat
+    mock_telegram_update.callback_query = query
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.handle_channel_select_callback(mock_telegram_update, mock_telegram_context)
+
+    mock_acl.verify_admin.assert_awaited()
+    updated_link_rows = await async_db_session.execute(select(ChannelAdminLink))
+    updated_link = updated_link_rows.scalar_one()
+    assert updated_link.revoked_at is not None
+
+    refreshed_actor = await async_db_session.get(Chat, actor_chat.id)
+    assert refreshed_actor.active_channel_chat_id is None
+    answer_args, _ = query.edit_message_text.call_args
+    assert "revoked" in (answer_args[0] or "").lower()

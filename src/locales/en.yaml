@@ -97,20 +97,45 @@ handlers:
     private_only: "Use /channel_select from a private DM with the bot."
     none_linked: "No channels are linked yet. Run /channel_link first."
     prompt: |-
-      Pick which channel this DM should control.
+      Pick which channel you would like to control.
       The selection lasts {ttl_minutes} minutes or until you switch.
-    clear_button: "Use this DM"
-    cleared: "Channel selection cleared. Commands now apply to this DM."
+    clear_button: "Direct messages"
+    cleared: "Channel selection cleared. Commands now apply to direct messages."
     unknown_action: "I didn't understand that selection. Please open /channel_select again."
     invalid_payload: "Unable to parse the selected channel."
     channel_missing: "That channel record no longer exists. Link it again with /channel_link."
     link_missing: "You're no longer linked to that channel. Run /channel_link to relink it."
     revoked: "Telegram reports you're no longer an administrator, so access was revoked."
     bot_missing_permissions: "I'm missing required channel permissions ({missing_permissions}). Grant the rights and retry."
-    selected: "Now targeting {channel_title}. Commands in this DM will apply there until you change it."
+    selected: "Now targeting channel '{channel_title}'. Commands in this chat will apply there until you change it."
+  channel_unlink:
+    private_only: "Run /channel_unlink from a private DM with the bot."
+    no_channel_selected: "Select a channel with /channel_select before unlinking."
+    prompt: |-
+      ⚠️ Unlink **{channel_title}**?
+
+      This removes {subscription_count} subscription(s) and revokes admin access for everyone until you link it again.
+    confirm_button: "Unlink channel"
+    cancel_button: "Keep channel linked"
+    cancelled: "Unlink cancelled. The channel remains linked."
+    unknown_action: "I couldn't process that unlink action. Please run /channel_unlink again."
+    invalid_payload: "Unable to parse the unlink request. Please retry."
+    channel_missing: "I can't find that channel anymore. Link it again if needed."
+    link_missing: "You're no longer linked to that channel. Run /channel_link to relink it."
+    revoked: "Telegram reports you're no longer an admin for {channel_title}, so the unlink request was denied."
+    completed: |-
+      ✅ {channel_title} was unlinked.
+
+      • Subscriptions removed: {subscription_count}
+      • Webhooks cleaned up: {webhook_count}
+      • Admin links revoked: {admin_count}
   channel_context:
     target_notice: "🎯 Channel context: {channel_title}"
     expired: "The active channel selection expired. Run /channel_select to choose a channel again."
+    revoked: "Your access to {channel_title} was revoked, so I cleared that channel. Relink it to continue."
+    bot_missing: "I can't post in {channel_title} because I'm missing: {missing_permissions}. Restore permissions and link again."
+    forward_switch_success: "🎯 Channel context switched to {channel_title}."
+    forward_link_missing: "I don't recognize that channel yet. Trying to link it."
   list:
     no_subscriptions: "You don't have any subscriptions yet."
     no_active_subscriptions: "You don't have any active subscriptions."

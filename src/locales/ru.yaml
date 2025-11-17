@@ -97,9 +97,9 @@ handlers:
     private_only: "Используйте /channel_select в личном чате с ботом."
     none_linked: "Ещё нет привязанных каналов. Сначала выполните /channel_link."
     prompt: |-
-      Выберите канал, которым будет управлять этот DM.
+      Выберите канал, для которого нужно настроить уведомления.
       Выбор действует {ttl_minutes} минут или пока вы его не смените.
-    clear_button: "Использовать этот DM"
+    clear_button: "Личные сообщения"
     cleared: "Выбор канала сброшен. Команды снова относятся к этому чату."
     unknown_action: "Неизвестный выбор. Откройте /channel_select заново."
     invalid_payload: "Не удалось распознать выбранный канал."
@@ -107,10 +107,35 @@ handlers:
     link_missing: "Связь с этим каналом утеряна. Выполните /channel_link ещё раз."
     revoked: "Telegram сообщает, что вы больше не администратор, поэтому доступ удалён."
     bot_missing_permissions: "У бота нет обязательных прав ({missing_permissions}). Выдайте их и повторите."
-    selected: "Теперь управляем каналом {channel_title}. Команды будут применяться к нему, пока вы не переключитесь."
+    selected: "Теперь управляем каналом '{channel_title}'. Команды будут применяться к нему, пока вы не переключитесь."
+  channel_unlink:
+    private_only: "Выполняйте /channel_unlink в личном чате с ботом."
+    no_channel_selected: "Сначала выберите канал через /channel_select."
+    prompt: |-
+      ⚠️ Отвязать **{channel_title}**?
+
+      Это удалит {subscription_count} подписок и отключит доступ всех администраторов, пока вы не привяжете канал заново.
+    confirm_button: "Отвязать канал"
+    cancel_button: "Оставить как есть"
+    cancelled: "Отмена: канал остаётся привязанным."
+    unknown_action: "Не удалось обработать действие. Повторите /channel_unlink."
+    invalid_payload: "Не получилось распознать запрос. Попробуйте снова."
+    channel_missing: "Я больше не нахожу этот канал. При необходимости привяжите его заново."
+    link_missing: "У вас больше нет связи с этим каналом. Используйте /channel_link, чтобы обновить доступ."
+    revoked: "Telegram сообщил, что вы больше не администратор {channel_title}, поэтому запрос отклонён."
+    completed: |-
+      ✅ {channel_title} отвязан.
+
+      • Удалено подписок: {subscription_count}
+      • Очистка вебхуков: {webhook_count}
+      • Отозвано доступов: {admin_count}
   channel_context:
     target_notice: "🎯 Активный канал: {channel_title}"
     expired: "Срок действия выбранного канала истёк. Используйте /channel_select, чтобы выбрать снова."
+    revoked: "Ваши права на {channel_title} были отозваны, поэтому канал удалён из контекста. Выполните /channel_link повторно."
+    bot_missing: "Я больше не могу публиковать в {channel_title}: отсутствуют права {missing_permissions}. Выдайте их и привяжите канал снова."
+    forward_switch_success: "🎯 Контекст переключён на {channel_title}."
+    forward_link_missing: "Я ещё не знаю этот канал. Пробую привязать."
   list:
     no_subscriptions: "У вас ещё нет подписок."
     no_active_subscriptions: "Активных подписок не найдено."

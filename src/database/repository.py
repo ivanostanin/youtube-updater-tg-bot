@@ -3,9 +3,11 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any, cast
 
 import sqlalchemy as sa
 from sqlalchemy import select
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -220,6 +222,30 @@ class ChatRepository:
             return None
         return await self.get_chat(chat.active_channel_chat_id)
 
+    async def deactivate_chat(self, chat: Chat) -> Chat:
+        """Mark a chat as inactive without deleting historical data."""
+        if not chat.is_active:
+            return chat
+        chat.is_active = False
+        await self.session.commit()
+        await self.session.refresh(chat)
+        return chat
+
+    async def clear_channel_from_active_contexts(self, channel_chat_id: int) -> int:
+        """Clear active-channel references that point to the provided channel."""
+        stmt = (
+            sa.update(Chat)
+            .where(Chat.active_channel_chat_id == channel_chat_id)
+            .values(
+                active_channel_chat_id=None,
+                active_channel_selected_at=None,
+                active_channel_expires_at=None,
+            )
+        )
+        result = cast(CursorResult[Any], await self.session.execute(stmt))
+        await self.session.commit()
+        return int(result.rowcount or 0)
+
 
 class ChannelAdminLinkRepository:
     def __init__(self, session: AsyncSession):
@@ -373,6 +399,43 @@ class ChannelAdminLinkRepository:
             extra={"meta_admin_user_id": admin_user_id, "meta_link_count": len(links)},
         )
         return links
+
+    async def revoke_all_for_channel(
+        self,
+        *,
+        channel_chat_id: int,
+        request_id: str | None = None,
+    ) -> int:
+        """Revoke all admin links referencing the provided channel."""
+        correlation_id = request_id or new_request_id()
+        stmt = select(ChannelAdminLink).where(
+            ChannelAdminLink.channel_chat_id == channel_chat_id,
+            ChannelAdminLink.revoked_at.is_(None),
+        )
+        result = await self.session.execute(stmt)
+        links = list(result.scalars().all())
+        if not links:
+            _repo_log(
+                logging.DEBUG,
+                "No active links to revoke for channel",
+                request_id=correlation_id,
+                operation="repository.channel_admin_link.revoke_all",
+                chat_id=channel_chat_id,
+            )
+            return 0
+        now = _utcnow()
+        for link in links:
+            link.revoked_at = now
+        await self.session.commit()
+        _repo_log(
+            logging.INFO,
+            "Revoked channel admin links",
+            request_id=correlation_id,
+            operation="repository.channel_admin_link.revoke_all",
+            chat_id=channel_chat_id,
+            extra={"meta_revoked_count": len(links)},
+        )
+        return len(links)
 
 
 class ChannelRepository:
@@ -820,6 +883,43 @@ class SubscriptionRepository:
             extra={"meta_subscriber_count": len(subscribers)},
         )
         return subscribers
+
+    async def deactivate_chat_subscriptions(
+        self,
+        chat_id: int,
+        *,
+        request_id: str | None = None,
+    ) -> list[Subscription]:
+        """Soft delete every active subscription for the specified chat."""
+        correlation_id = request_id or new_request_id()
+        result = await self.session.execute(
+            select(Subscription)
+            .where(Subscription.chat_id == chat_id)
+            .where(Subscription.is_active)
+            .options(selectinload(Subscription.channel))
+        )
+        subscriptions = list(result.scalars().all())
+        if not subscriptions:
+            _repo_log(
+                logging.DEBUG,
+                "No active subscriptions to deactivate for chat",
+                request_id=correlation_id,
+                operation="repository.subscriptions.deactivate_chat",
+                chat_id=chat_id,
+            )
+            return []
+        for subscription in subscriptions:
+            subscription.is_active = False
+        await self.session.commit()
+        _repo_log(
+            logging.INFO,
+            "Deactivated chat subscriptions",
+            request_id=correlation_id,
+            operation="repository.subscriptions.deactivate_chat",
+            chat_id=chat_id,
+            extra={"meta_removed_count": len(subscriptions)},
+        )
+        return subscriptions
 
     async def channel_has_active_subscribers(
         self,

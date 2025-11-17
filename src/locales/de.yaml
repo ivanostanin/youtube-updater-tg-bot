@@ -108,9 +108,34 @@ handlers:
     revoked: "Laut Telegram bist du kein Administrator mehr, daher wurde der Zugriff entzogen."
     bot_missing_permissions: "Dem Bot fehlen erforderliche Kanalrechte ({missing_permissions}). Vergib die Rechte und versuche es erneut."
     selected: "{channel_title} ist jetzt aktiv. Befehle gelten dafür, bis du wechselst."
+  channel_unlink:
+    private_only: "Führe /channel_unlink in einem privaten Chat mit dem Bot aus."
+    no_channel_selected: "Wähle zuerst einen Kanal über /channel_select."
+    prompt: |-
+      ⚠️ **{channel_title}** wirklich trennen?
+
+      Dadurch werden {subscription_count} Abonnements entfernt und alle Admin-Verknüpfungen aufgehoben, bis du den Kanal erneut verknüpfst.
+    confirm_button: "Kanal trennen"
+    cancel_button: "Verknüpfung behalten"
+    cancelled: "Abgebrochen – der Kanal bleibt verknüpft."
+    unknown_action: "Unbekannte Aktion. Bitte /channel_unlink erneut ausführen."
+    invalid_payload: "Die Anfrage konnte nicht gelesen werden. Bitte erneut versuchen."
+    channel_missing: "Ich finde diesen Kanal nicht mehr. Verknüpfe ihn erneut, falls nötig."
+    link_missing: "Du bist nicht mehr mit diesem Kanal verknüpft. Nutze /channel_link, um den Zugriff zu erneuern."
+    revoked: "Telegram meldet, dass du kein Admin mehr von {channel_title} bist. Anfrage abgelehnt."
+    completed: |-
+      ✅ {channel_title} wurde getrennt.
+
+      • Entfernte Abonnements: {subscription_count}
+      • Bereinigte Webhooks: {webhook_count}
+      • Widerrufene Admin-Links: {admin_count}
   channel_context:
     target_notice: "🎯 Aktiver Kanal: {channel_title}"
     expired: "Die Kanalauswahl ist abgelaufen. Nutze /channel_select für eine neue Auswahl."
+    revoked: "Deine Rechte für {channel_title} wurden entzogen, daher wurde die Auswahl gelöscht. Führe /channel_link erneut aus."
+    bot_missing: "Ich kann nicht mehr in {channel_title} posten, mir fehlen: {missing_permissions}. Rechte vergeben und den Kanal erneut verknüpfen."
+    forward_switch_success: "🎯 Kanal-Kontext auf {channel_title} umgestellt."
+    forward_link_missing: "Diesen Kanal kenne ich noch nicht."
   list:
     no_subscriptions: "Du hast noch keine Abonnements."
     no_active_subscriptions: "Keine aktiven Abonnements gefunden."

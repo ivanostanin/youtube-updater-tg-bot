@@ -16,13 +16,14 @@ The following flow keeps all sensitive prompts inside a DM between the admin and
 
 1. **Link a channel**
    - In a DM, run `/channel_link @mychannel`.
-   - For private/invite-only channels, forward any recent post from the channel to the DM, reply with `/channel_link`, and confirm the bot resolves the hidden chat ID.
+   - For private/invite-only channels, forward any recent post from the channel to the DM, reply to channel post to bot with `/channel_link`, and confirm the bot resolves the hidden chat ID.
    - The bot should confirm success and mention that DM commands now target the channel for `DM_CHANNEL_CONTEXT_TTL_MINUTES` minutes.
    - Check the `channel_admin_links` table for the new record and ensure the DM chat row references `active_channel_chat_id`.
 2. **Select or switch a channel**
    - Run `/channel_select` in the DM to view the inline keyboard.
    - Pick a linked channel and verify the bot acknowledges the selection.
    - Optional: choose “Use this DM” to clear the context.
+   - Shortcut: Forward any post from a linked (even private) channel to the DM to switch context without opening the keyboard.
 3. **Subscribe from DM context**
    - Still in the DM, run `/subscribe <YouTube URL>`.
    - Confirm the success message mentions the targeted channel and the `subscriptions` row references the channel chat, not the admin’s private chat.

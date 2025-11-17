@@ -48,9 +48,21 @@ A Telegram bot that monitors YouTube channels and sends notifications when new v
 - `/unsubscribe` - Remove subscriptions
 - `/channel_link <@channel>` - Link a broadcast channel from a DM  
   (For private channels, forward any recent message from the channel to this DM and reply `/channel_link` to that forwarded message)
+- `Forward channel message` - After linking, forwarding a channel post to the DM instantly switches the active context for subsequent commands
 - `/channel_select` - Pick the active channel context for DM commands
+- `/channel_unlink` - Unlink the active channel and remove all of its YouTube subscriptions/webhooks
 - `/language` - Select your preferred language for this chat
 - `/help` - Show available commands
+
+## DM Channel Onboarding
+
+Follow these steps to keep all channel administration inside a private DM while still broadcasting to the channel:
+
+1. **Grant the bot admin rights first** – add the bot to your channel and enable `can_post_messages`, `can_delete_messages`, and `can_edit_messages` so `/channel_link` can validate permissions. The bot will refuse to link the channel if any of those rights are missing.
+2. **Run `/channel_link` inside a DM** – pass a public `@channelusername`, or the full invite link. For private channels that cannot be resolved by link alone, forward a recent post from the channel or reply with `/channel_link`; the forwarded metadata gives the bot the required `chat_id` without exposing the channel publicly.
+3. **Select the active channel context** – `/channel_select` lists every channel you have linked. Picking one or forwarding another channel message switches the DM context so `/subscribe`, `/unsubscribe`, `/list`, and `/options` run against that channel until the TTL (controlled by `DM_CHANNEL_CONTEXT_TTL_MINUTES`) expires.
+4. **Troubleshooting tips** – if Telegram reports `chat not found`, double-check that the invite token has not been revoked. Permission denials mean the bot is missing the admin flags listed above; re-open the channel permissions dialog, grant the rights, and rerun `/channel_link`. If a DM suddenly falls back to the private chat context, it usually means Telegram revoked your admin role—run `/channel_select` again or re-link the channel after restoring admin access.
+5. **Unlinking/cleanup** – when you want to stop broadcasting to a channel, switch to that channel context and run `/channel_unlink`. The bot revokes admin associations, removes every subscription tied to the channel chat, and unsubscribes unused YouTube webhooks so nothing else posts there until you link it again.
 
 ## Supported YouTube URL Formats
 

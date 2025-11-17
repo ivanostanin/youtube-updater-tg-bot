@@ -5,16 +5,20 @@ Tests cover all command handlers including /start, /help, /subscribe, /list,
 """
 
 import logging
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import allure
 import pytest
 from sqlalchemy import select
 from telegram import CallbackQuery, InlineKeyboardMarkup
+from telegram.error import TelegramError
 
-from src.bot.handlers import BotHandlers
+from src.bot.handlers import BotHandlers, CommandExecutionContext
 from src.database.models import ChannelAdminLink, Chat, Subscription, User, YouTubeChannel
-from src.database.repository import UserRepository
+from src.database.repository import SubscriptionRepository, UserRepository
+from src.services import ACLService
 from src.utils.config import settings
 
 
@@ -816,6 +820,38 @@ async def test_subscribe_sets_channel_webhook(
 @allure.story("Channel Linking")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
+def test_normalize_channel_identifier_preserves_invite_link():
+    """Invite links should remain intact so Telegram accepts the lookup."""
+    identifier = BotHandlers._normalize_channel_identifier("https://t.me/+SecretToken?start=foo")
+    assert identifier == "+SecretToken"
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Linking")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+def test_normalize_channel_identifier_accepts_plus_token_without_at():
+    """Bare +tokens should not be rewritten into @usernames."""
+    identifier = BotHandlers._normalize_channel_identifier("+AnotherSecretToken")
+    assert identifier == "+AnotherSecretToken"
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Linking")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+def test_channel_identifier_candidates_include_invite_variants():
+    """Invite links should try token, canonical https, and raw input."""
+    candidates = BotHandlers._channel_identifier_candidates(" https://telegram.me/+SecretToken ")
+    assert candidates[0] == "+SecretToken"
+    assert "https://t.me/+SecretToken" in candidates
+    assert "https://telegram.me/+SecretToken" in candidates
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Linking")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
 async def test_channel_link_command_links_channel(
     mock_youtube_api,
     mock_telegram_update,
@@ -840,9 +876,7 @@ async def test_channel_link_command_links_channel(
     bot_member.can_edit_messages = True
 
     mock_telegram_context.bot.get_chat = AsyncMock(return_value=channel_chat)
-    mock_telegram_context.bot.get_chat_member = AsyncMock(
-        side_effect=[admin_member, bot_member]
-    )
+    mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
 
     with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
         await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
@@ -867,6 +901,52 @@ async def test_channel_link_command_links_channel(
 @allure.story("Channel Linking")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
+async def test_channel_link_command_invite_link_retries_lookup(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Invite-link lookups should retry with alternate identifiers before failing."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_context.args = ["https://t.me/+SecretToken"]
+
+    channel_chat = MagicMock()
+    channel_chat.id = -100333222111
+    channel_chat.type = "channel"
+    channel_chat.title = "Secret Channel"
+
+    admin_member = MagicMock()
+    admin_member.status = "administrator"
+    bot_member = MagicMock()
+    bot_member.can_post_messages = True
+    bot_member.can_delete_messages = True
+    bot_member.can_edit_messages = True
+
+    mock_telegram_context.bot.get_chat = AsyncMock(
+        side_effect=[TelegramError("Chat not found"), channel_chat]
+    )
+    mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
+
+    # ensure fallback lookup order
+    assert mock_telegram_context.bot.get_chat.await_args_list[0].args == ("+SecretToken",)
+    assert mock_telegram_context.bot.get_chat.await_args_list[1].args == (
+        "https://t.me/+SecretToken",
+    )
+
+    link_rows = await async_db_session.execute(select(ChannelAdminLink))
+    link = link_rows.scalar_one()
+    assert link.channel_chat_id is not None
+    assert link.admin_user_id is not None
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Linking")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
 async def test_dm_subscription_targets_channel_context(
     mock_youtube_api,
     mock_telegram_update,
@@ -875,25 +955,45 @@ async def test_dm_subscription_targets_channel_context(
 ):
     """Ensure DM subscriptions use the selected channel chat."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-
-    channel_chat = MagicMock()
-    channel_chat.id = -100111222333
-    channel_chat.type = "channel"
-    channel_chat.title = "DM Channel"
-    channel_chat.username = "dmchannel"
-    admin_member = MagicMock()
-    admin_member.status = "administrator"
-    bot_member = MagicMock()
-    bot_member.can_post_messages = True
-    bot_member.can_delete_messages = True
-    bot_member.can_edit_messages = True
-    mock_telegram_context.bot.get_chat = AsyncMock(return_value=channel_chat)
-    mock_telegram_context.bot.get_chat_member = AsyncMock(
-        side_effect=[admin_member, bot_member]
-    )
-
     handlers.manage_channel_webhook = AsyncMock(return_value=True)
     handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=True)
+    verify_patch = AsyncMock(return_value=(True, []))
+    mock_acl = MagicMock(spec=ACLService)
+    mock_acl.verify_admin = AsyncMock(return_value=True)
+    handlers.acl_service = mock_acl
+    handlers._verify_bot_permissions = verify_patch
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="dmuser",
+        first_name="DM",
+        last_name="User",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    channel_chat = Chat(
+        chat_id="-100111222333",
+        chat_type="channel",
+        title="DM Channel",
+    )
+    async_db_session.add_all([actor_chat, channel_chat])
+    await async_db_session.flush()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    actor_chat.active_channel_chat_id = channel_chat.id
+    actor_chat.active_channel_selected_at = now
+    actor_chat.active_channel_expires_at = now + timedelta(minutes=60)
+    async_db_session.add(
+        ChannelAdminLink(
+            channel_chat_id=channel_chat.id,
+            admin_user_id=db_user.id,
+            role="administrator",
+        )
+    )
+    await async_db_session.commit()
 
     mock_youtube_api.resolve_url = AsyncMock(
         return_value={
@@ -907,17 +1007,12 @@ async def test_dm_subscription_targets_channel_context(
     )
 
     with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
-        mock_telegram_context.args = ["@dmchannel"]
-        await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
-
         mock_telegram_context.args = ["https://youtube.com/@testchannel"]
         await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
 
     subscription_rows = await async_db_session.execute(select(Subscription))
     subscription = subscription_rows.scalar_one()
-    channel_chats = await async_db_session.execute(
-        select(Chat).where(Chat.chat_type == "channel")
-    )
+    channel_chats = await async_db_session.execute(select(Chat).where(Chat.chat_type == "channel"))
     channel_chat_row = channel_chats.scalars().first()
     assert channel_chat_row is not None
     assert subscription.chat_id == channel_chat_row.id
@@ -943,9 +1038,15 @@ async def test_channel_link_command_links_private_channel_via_forward(
     forward_channel.title = "Private Channel"
     forward_channel.username = None
 
-    reply_message = MagicMock()
-    reply_message.forward_from_chat = forward_channel
-    mock_telegram_update.message.reply_to_message = reply_message
+    message = SimpleNamespace(
+        reply_text=AsyncMock(),
+        chat=mock_telegram_update.effective_chat,
+        from_user=mock_telegram_update.effective_user,
+        text="/channel_link",
+    )
+    message.forward_origin = SimpleNamespace(chat=forward_channel)
+    mock_telegram_update.message = message
+    mock_telegram_update.effective_message = message
 
     admin_member = MagicMock()
     admin_member.status = "administrator"
@@ -954,9 +1055,7 @@ async def test_channel_link_command_links_private_channel_via_forward(
     bot_member.can_delete_messages = True
     bot_member.can_edit_messages = True
 
-    mock_telegram_context.bot.get_chat_member = AsyncMock(
-        side_effect=[admin_member, bot_member]
-    )
+    mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
     mock_telegram_context.bot.get_chat = AsyncMock()
 
     with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
@@ -967,6 +1066,551 @@ async def test_channel_link_command_links_private_channel_via_forward(
     link_rows = await async_db_session.execute(select(ChannelAdminLink))
     link = link_rows.scalar_one()
     assert link.revoked_at is None
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Unlink")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_channel_unlink_command_requires_channel_context(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Ensure /channel_unlink warns when no channel context is active."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_update.message.reply_text.reset_mock()
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.channel_unlink_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_called_once()
+    reply_text = mock_telegram_update.message.reply_text.call_args.args[0]
+    assert "/channel_select" in reply_text
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Unsubscribe Command")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_unsubscribe_command_stops_when_context_cleared(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Ensure /unsubscribe aborts when channel context is revoked/expired."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="contextless",
+        first_name="Context",
+        last_name="Less",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    async_db_session.add(actor_chat)
+    await async_db_session.commit()
+
+    context_state = CommandExecutionContext(
+        db_user=db_user,
+        actor_chat=actor_chat,
+        target_chat=actor_chat,
+        locale="en",
+        context_cleared=True,
+        context_message_key="handlers.channel_context.expired",
+        context_message_params={"channel_title": "Sample Channel"},
+    )
+
+    mock_get_subs = AsyncMock()
+    mock_telegram_update.message.reply_text.reset_mock()
+
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(
+            handlers,
+            "_build_command_context",
+            AsyncMock(return_value=context_state),
+        ),
+        patch.object(
+            SubscriptionRepository,
+            "get_chat_subscriptions",
+            mock_get_subs,
+        ),
+    ):
+        await handlers.unsubscribe_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_called_once()
+    assert "expired" in mock_telegram_update.message.reply_text.call_args.args[0]
+    assert mock_get_subs.await_count == 0
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Unlink")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_channel_unlink_command_prompts_confirmation(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """DM unlink command should render a confirmation keyboard and summary."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="unlinker",
+        first_name="Unlink",
+        last_name="User",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    channel_chat = Chat(
+        chat_id="-10099887766",
+        chat_type="channel",
+        title="Channel To Remove",
+    )
+    async_db_session.add_all([actor_chat, channel_chat])
+    await async_db_session.flush()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    actor_chat.active_channel_chat_id = channel_chat.id
+    actor_chat.active_channel_selected_at = now
+    actor_chat.active_channel_expires_at = now + timedelta(minutes=30)
+    async_db_session.add(
+        ChannelAdminLink(
+            channel_chat_id=channel_chat.id,
+            admin_user_id=db_user.id,
+            role="administrator",
+        )
+    )
+    youtube_channel = YouTubeChannel(
+        channel_id="UCunlink",
+        channel_name="To Unlink",
+        channel_url="https://youtube.com/channel/UCunlink",
+    )
+    async_db_session.add(youtube_channel)
+    await async_db_session.flush()
+    async_db_session.add(
+        Subscription(
+            chat_id=channel_chat.id,
+            channel_id=youtube_channel.id,
+            is_active=True,
+        )
+    )
+    await async_db_session.commit()
+    mock_telegram_update.message.reply_text.reset_mock()
+
+    context_state = CommandExecutionContext(
+        db_user=db_user,
+        actor_chat=actor_chat,
+        target_chat=channel_chat,
+        locale="en",
+    )
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(
+            handlers,
+            "_build_command_context",
+            AsyncMock(return_value=context_state),
+        ),
+    ):
+        await handlers.channel_unlink_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_called_once()
+    args, kwargs = mock_telegram_update.message.reply_text.call_args
+    assert "Channel To Remove" in args[0]
+    assert "1" in args[0]
+    keyboard = kwargs["reply_markup"]
+    confirm_button = keyboard.inline_keyboard[0][0]
+    assert confirm_button.callback_data == f"chanunlink::confirm::{channel_chat.id}"
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Unlink")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_channel_unlink_callback_cleans_up_channel(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Confirming unlink should revoke links, disable subscriptions, and clean up webhooks."""
+    mock_acl = MagicMock(spec=ACLService)
+    mock_acl.verify_admin = AsyncMock(return_value=True)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot, acl_service=mock_acl)
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="cleanup",
+        first_name="Clean",
+        last_name="Up",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    channel_chat = Chat(
+        chat_id="-10011223344",
+        chat_type="channel",
+        title="Cleanup Channel",
+    )
+    async_db_session.add_all([actor_chat, channel_chat])
+    await async_db_session.flush()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    actor_chat.active_channel_chat_id = channel_chat.id
+    actor_chat.active_channel_selected_at = now
+    actor_chat.active_channel_expires_at = now + timedelta(minutes=30)
+    async_db_session.add(
+        ChannelAdminLink(
+            channel_chat_id=channel_chat.id,
+            admin_user_id=db_user.id,
+            role="administrator",
+        )
+    )
+
+    youtube_channels = [
+        YouTubeChannel(
+            channel_id="UCunlink1",
+            channel_name="First Channel",
+            channel_url="https://youtube.com/channel/UCunlink1",
+        ),
+        YouTubeChannel(
+            channel_id="UCunlink2",
+            channel_name="Second Channel",
+            channel_url="https://youtube.com/channel/UCunlink2",
+        ),
+    ]
+    async_db_session.add_all(youtube_channels)
+    await async_db_session.flush()
+    async_db_session.add_all(
+        [
+            Subscription(
+                chat_id=channel_chat.id, channel_id=youtube_channels[0].id, is_active=True
+            ),
+            Subscription(
+                chat_id=channel_chat.id, channel_id=youtube_channels[1].id, is_active=True
+            ),
+        ]
+    )
+    await async_db_session.commit()
+
+    query = MagicMock()
+    query.data = f"chanunlink::confirm::{channel_chat.id}"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.message = SimpleNamespace()
+    mock_telegram_update.callback_query = query
+
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(
+            handlers,
+            "manage_channel_webhook",
+            AsyncMock(return_value=True),
+        ) as webhook_mock,
+    ):
+        await handlers.handle_channel_unlink_callback(mock_telegram_update, mock_telegram_context)
+
+    updated_subscriptions = (
+        (
+            await async_db_session.execute(
+                select(Subscription).where(Subscription.chat_id == channel_chat.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert all(not sub.is_active for sub in updated_subscriptions)
+
+    updated_link = await async_db_session.execute(select(ChannelAdminLink))
+    assert updated_link.scalar_one().revoked_at is not None
+
+    refreshed_channel = await async_db_session.get(Chat, channel_chat.id)
+    assert refreshed_channel.is_active is False
+
+    refreshed_actor = await async_db_session.get(Chat, actor_chat.id)
+    assert refreshed_actor.active_channel_chat_id is None
+
+    query.edit_message_text.assert_called_once()
+    call_args = webhook_mock.await_args_list
+    assert len(call_args) == 2
+    assert {args.args[0] for args in call_args} == {"UCunlink1", "UCunlink2"}
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Context")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_list_command_clears_context_when_admin_revoked(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """DM commands should drop channel context when Telegram revokes admin rights."""
+    mock_acl = MagicMock(spec=ACLService)
+    mock_acl.verify_admin = AsyncMock(return_value=False)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot, acl_service=mock_acl)
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="testuser",
+        first_name="Test",
+        last_name="User",
+    )
+    private_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    channel_chat = Chat(
+        chat_id="-100555666777",
+        chat_type="channel",
+        title="Linked Channel",
+    )
+    async_db_session.add_all([private_chat, channel_chat])
+    await async_db_session.flush()
+    private_chat.active_channel_chat_id = channel_chat.id
+    now = datetime.now(UTC).replace(tzinfo=None)
+    private_chat.active_channel_selected_at = now
+    private_chat.active_channel_expires_at = now + timedelta(minutes=60)
+    async_db_session.add(
+        ChannelAdminLink(
+            channel_chat_id=channel_chat.id,
+            admin_user_id=db_user.id,
+            role="administrator",
+        )
+    )
+    await async_db_session.commit()
+    mock_telegram_update.message.reply_text.reset_mock()
+
+    verify_patch = AsyncMock(return_value=(True, []))
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(handlers, "_verify_bot_permissions", verify_patch),
+    ):
+        await handlers.list_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_called()
+    first_reply = mock_telegram_update.message.reply_text.call_args.args[0]
+    assert "revoked" in first_reply.lower()
+
+    refreshed = await async_db_session.get(Chat, private_chat.id)
+    assert refreshed.active_channel_chat_id is None
+
+    link_row = await async_db_session.execute(select(ChannelAdminLink))
+    assert link_row.scalar_one().revoked_at is not None
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Context")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_forwarded_message_switches_channel_context(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Forwarding a linked channel message in a DM should switch the active context."""
+    mock_acl = MagicMock(spec=ACLService)
+    mock_acl.verify_admin = AsyncMock(return_value=True)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot, acl_service=mock_acl)
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="forwarduser",
+        first_name="Forward",
+        last_name="User",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    channel_chat = Chat(
+        chat_id="-100333444555",
+        chat_type="channel",
+        title="Forward Channel",
+    )
+    async_db_session.add_all([actor_chat, channel_chat])
+    await async_db_session.flush()
+    async_db_session.add(
+        ChannelAdminLink(
+            channel_chat_id=channel_chat.id,
+            admin_user_id=db_user.id,
+            role="administrator",
+        )
+    )
+    await async_db_session.commit()
+    message = SimpleNamespace(
+        reply_text=AsyncMock(),
+        chat=mock_telegram_update.effective_chat,
+        from_user=mock_telegram_update.effective_user,
+        text="",
+    )
+    forwarded = SimpleNamespace(
+        type="channel",
+        id=int(channel_chat.chat_id),
+        title=channel_chat.title,
+    )
+    message.forward_origin = SimpleNamespace(chat=forwarded)
+    message.external_reply = None
+    mock_telegram_update.message = message
+    mock_telegram_update.effective_message = message
+
+    verify_patch = AsyncMock(return_value=(True, []))
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(handlers, "_verify_bot_permissions", verify_patch),
+    ):
+        await handlers.handle_message(mock_telegram_update, mock_telegram_context)
+
+    updated_chat = await async_db_session.get(Chat, actor_chat.id)
+    assert updated_chat.active_channel_chat_id == channel_chat.id
+    mock_telegram_update.message.reply_text.assert_called()
+    success_text = mock_telegram_update.message.reply_text.call_args.args[0]
+    assert "channel context" in success_text.lower()
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Selection")
+@allure.severity(allure.severity_level.NORMAL)
+@pytest.mark.unit
+async def test_channel_select_command_renders_keyboard(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Ensure /channel_select surfaces linked channels via inline keyboard."""
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
+    mock_telegram_update.message.reply_text.reset_mock()
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="selector",
+        first_name="Select",
+        last_name="User",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    channels = [
+        Chat(chat_id="-100200300401", chat_type="channel", title="Alpha Channel"),
+        Chat(chat_id="-100200300402", chat_type="channel", title="Beta Channel"),
+    ]
+    async_db_session.add(actor_chat)
+    async_db_session.add_all(channels)
+    await async_db_session.flush()
+    for channel in channels:
+        async_db_session.add(
+            ChannelAdminLink(
+                channel_chat_id=channel.id,
+                admin_user_id=db_user.id,
+                role="administrator",
+            )
+        )
+    await async_db_session.commit()
+
+    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+        await handlers.channel_select_command(mock_telegram_update, mock_telegram_context)
+
+    mock_telegram_update.message.reply_text.assert_called()
+    reply_kwargs = mock_telegram_update.message.reply_text.call_args.kwargs
+    markup = reply_kwargs["reply_markup"]
+    assert isinstance(markup, InlineKeyboardMarkup)
+    # 2 channel buttons + 1 clear button
+    assert len(markup.inline_keyboard) == 3
+    assert any(
+        "chanselect::set" in button.callback_data
+        for row in markup.inline_keyboard
+        for button in row
+    )
+
+
+@allure.feature("Bot Handlers")
+@allure.story("Channel Selection")
+@allure.severity(allure.severity_level.CRITICAL)
+@pytest.mark.unit
+async def test_channel_select_callback_switches_channel(
+    mock_youtube_api,
+    mock_telegram_update,
+    mock_telegram_context,
+    async_db_session,
+):
+    """Selecting a channel via callback should set the DM context."""
+    mock_acl = MagicMock(spec=ACLService)
+    mock_acl.verify_admin = AsyncMock(return_value=True)
+    handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot, acl_service=mock_acl)
+
+    user_repo = UserRepository(async_db_session)
+    db_user = await user_repo.get_or_create_user(
+        telegram_id=str(mock_telegram_update.effective_user.id),
+        username="selector",
+        first_name="Select",
+        last_name="User",
+    )
+    actor_chat = Chat(
+        chat_id=str(mock_telegram_update.effective_chat.id),
+        chat_type="private",
+        user_id=db_user.id,
+    )
+    channel = Chat(
+        chat_id="-100987650001",
+        chat_type="channel",
+        title="Callback Channel",
+    )
+    async_db_session.add_all([actor_chat, channel])
+    await async_db_session.flush()
+    async_db_session.add(
+        ChannelAdminLink(
+            channel_chat_id=channel.id,
+            admin_user_id=db_user.id,
+            role="administrator",
+        )
+    )
+    await async_db_session.commit()
+
+    query = MagicMock(spec=CallbackQuery)
+    query.data = f"chanselect::set::{channel.id}"
+    query.answer = AsyncMock()
+    query.edit_message_text = AsyncMock()
+    query.message = MagicMock()
+    query.message.chat = mock_telegram_update.effective_chat
+    mock_telegram_update.callback_query = query
+    mock_telegram_update.effective_message = query.message
+    mock_telegram_update.effective_chat = mock_telegram_update.effective_chat
+
+    verify_patch = AsyncMock(return_value=(True, []))
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(handlers, "_verify_bot_permissions", verify_patch),
+    ):
+        await handlers.handle_channel_select_callback(mock_telegram_update, mock_telegram_context)
+
+    updated_chat = await async_db_session.get(Chat, actor_chat.id)
+    assert updated_chat.active_channel_chat_id == channel.id
+    query.edit_message_text.assert_called()
 
 
 @allure.feature("Bot Handlers")
@@ -1162,4 +1806,4 @@ async def test_language_callback_updates_chat_locale(
     chat_row = await async_db_session.execute(select(Chat))
     chat = chat_row.scalar_one()
     assert chat.preferred_locale == "ru"
-    query.answer.assert_awaited()
+    query.edit_message_text.assert_awaited()

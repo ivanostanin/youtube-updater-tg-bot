@@ -43,12 +43,8 @@ class Chat(Base):
     active_channel_chat_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("chats.id"), nullable=True
     )
-    active_channel_selected_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
-    active_channel_expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime, nullable=True
-    )
+    active_channel_selected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    active_channel_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     user: Mapped[User | None] = relationship("User", back_populates="chats")
     subscriptions: Mapped[list[Subscription]] = relationship(
