@@ -42,7 +42,6 @@ class NotificationService:
             sent_message = await self.bot.send_message(
                 chat_id=chat_telegram_id,
                 text=message,
-                parse_mode="Markdown",
                 disable_web_page_preview=False,
             )
 
@@ -219,7 +218,6 @@ class NotificationService:
             sent_message = await self.bot.send_message(
                 chat_id=chat_telegram_id,
                 text=message,
-                parse_mode="Markdown",
                 disable_web_page_preview=True,
             )
 
@@ -272,7 +270,6 @@ class NotificationService:
             sent_message = await self.bot.send_message(
                 chat_id=chat_telegram_id,
                 text=message,
-                parse_mode="Markdown",
             )
 
             logger.info(
