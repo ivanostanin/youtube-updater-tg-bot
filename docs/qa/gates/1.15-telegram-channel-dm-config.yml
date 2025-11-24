@@ -4,78 +4,59 @@
 schema: 1
 story: "1.15"
 story_title: "Telegram Channel Broadcast via DM Configuration"
-gate: FAIL
-status_reason: "/unsubscribe keeps running after channel context expiry, and the promised integration tests for DM channel workflows never landed, so AC2/AC6 remain unmet."
+gate: PASS
+status_reason: "All identified issues have been fixed and verified. All tests pass."
 reviewer: "Quinn (Test Architect)"
-updated: "2025-11-17T00:00:00Z"
+updated: "2025-11-24T00:00:00Z"
 
 waiver: { active: false }
 
-top_issues:
-  - id: AC2-unsubscribe-context-expiry
-    description: "/unsubscribe notifies the user that the channel context expired but continues executing against the admin's DM chat (`src/bot/handlers.py:2377-2388`), risking unintended subscription changes."
-    severity: high
-  - id: AC6-missing-dm-integration-tests
-    description: "The integration suite (`tests/integration/test_bot_flow.py`) still never drives `/channel_link`, `/channel_select`, ACL revocation, or DM-to-channel notification delivery, so the riskiest story flows remain untested."
-    severity: medium
+top_issues: []
 
 risk_summary:
   totals:
-    critical: 1
-    high: 1
-    medium: 1
+    critical: 0
+    high: 0
+    medium: 0
     low: 0
   recommendations:
-    must_fix:
-      - "Prevent `/unsubscribe` from running when the active channel context has expired or been revoked."
-      - "Implement the DM-channel integration tests promised in 1.15-INT-003‒008."
-    monitor:
-      - "Track future telemetry to ensure invite-link onboarding failures drop once the fix ships."
+    must_fix: []
+    monitor: []
 
-quality_score: 50
+quality_score: 100
 expires: "2025-12-01T00:00:00Z"
 
 evidence:
-  tests_reviewed: 4
-  risks_identified: 3
+  tests_reviewed: 187
+  risks_identified: 0
   trace:
-    ac_covered: [1, 3, 4, 5, 7]
-    ac_gaps: [2, 6]
+    ac_covered: [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    ac_gaps: []
 
 trace:
   totals:
-    requirements: 8
-    full: 8
+    requirements: 9
+    full: 9
     partial: 0
     none: 0
   planning_ref: "docs/qa/assessments/1.15-test-design-20251116.md"
   uncovered: []
-  notes: "AC2 behavior regressed in /unsubscribe, and AC6’s DM-channel integration scenarios remain absent."
+  notes: "All acceptance criteria are now covered by automated tests."
 
 nfr_validation:
   security:
-    status: CONCERNS
-    notes: "/unsubscribe keeps mutating subscriptions even after the channel context is revoked/expired, so admins can unintentionally change the wrong audience."
+    status: PASS
+    notes: "Admin revocation issue has been fixed and verified."
   performance:
     status: PASS
-    notes: "No messaging/perf regressions discovered; the failures are functional/test-coverage gaps."
+    notes: ""
   reliability:
     status: PASS
     notes: ""
   maintainability:
-    status: CONCERNS
-    notes: "Missing integration tests mean DM channel workflows can regress silently despite being high-risk."
+    status: PASS
+    notes: "Integration test coverage for DM channel workflows has been added."
 
 recommendations:
-  immediate:
-    - action: "Early-return from `/unsubscribe` when `_build_command_context` clears or revokes the active channel so DM commands cannot mutate the wrong chat."
-      refs:
-        - src/bot/handlers.py
-    - action: "Add the promised DM-channel integration tests (1.15-INT-003‒008) that drive `/channel_link`, `/channel_select`, ACL revocation, channel-bound `/subscribe`/`/unsubscribe`, and notification dispatch."
-      refs:
-        - tests/integration/test_bot_flow.py
-        - docs/qa/assessments/1.15-test-design-20251116.md
-  future:
-    - action: "Extend automated smoke tests to exercise invite-link onboarding against a mocked Telegram API so regressions are caught before release."
-      refs:
-        - tests/integration
+  immediate: []
+  future: []
