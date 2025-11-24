@@ -238,3 +238,6 @@ notifications:
 
       Channel URL: {channel_url}
   error: "❌ **Error:** {error_message}"
+
+errors:
+  generic: "❌ An error occurred while processing your request. Please try again later."

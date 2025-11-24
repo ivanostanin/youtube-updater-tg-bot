@@ -5,6 +5,7 @@ from telegram.ext import Application, ContextTypes
 
 from ..database.database import AsyncSessionLocal, init_db
 from ..utils.config import settings
+from ..utils.i18n import translate
 from ..utils.logging import setup_logging
 from ..webhooks.lease_refresher import WebhookLeaseRefresher
 from ..webhooks.synchronizer import WebhookSubscriptionSynchronizer
@@ -63,7 +64,8 @@ class YouTubeUpdaterBot:
                     try:
                         await context.bot.send_message(
                             chat_id=update.effective_chat.id,
-                            text="❌ An error occurred while processing your request. Please try again later.",
+                            text=translate("errors.generic", locale="en"),
+                            parse_mode="MarkdownV2",
                         )
                     except Exception as e:
                         logger.error(f"Could not send error message to user: {e}")

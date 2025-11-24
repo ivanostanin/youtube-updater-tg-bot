@@ -47,7 +47,7 @@ def format_subscription_list(
             header_key,
             locale=locale,
             request_id=request_id,
-            chat_title=resolved_title or "",
+            chat_title=escape_markdown_v2(resolved_title or ""),
         ),
         "",
     ]
@@ -59,7 +59,7 @@ def format_subscription_list(
                 "formatters.subscription.item_line",
                 locale=locale,
                 request_id=request_id,
-                channel_name=channel.channel_name,
+                channel_name=escape_markdown_v2(channel.channel_name),
             )
         )
         lines.append(
@@ -67,7 +67,7 @@ def format_subscription_list(
                 "formatters.subscription.item_link",
                 locale=locale,
                 request_id=request_id,
-                channel_url=channel.channel_url,
+                channel_url=escape_markdown_v2(channel.channel_url),
             )
         )
         lines.append("")
@@ -113,12 +113,23 @@ def format_group_discussion_prompt(
             "formatters.group_prompt.channel",
             locale=locale,
             request_id=request_id,
-            chat_title=audience or "",
+            chat_title=escape_markdown_v2(audience or ""),
         )
 
     return translate(
         "formatters.group_prompt.shared",
         locale=locale,
         request_id=request_id,
-        chat_title=audience or "",
+        chat_title=escape_markdown_v2(audience or ""),
     )
+
+
+def escape_markdown_v2(text: str) -> str:
+    """
+    Escape special characters for Telegram's MarkdownV2.
+
+    The following characters are escaped: `_`, `*`, `[`, `]`, `(`, `)`, `~`,
+    `` ` ``, `>`, `#`, `+`, `-`, `=`, `|`, `{`, `}`, `.`, `!`
+    """
+    escape_chars = r"_*[]()~`>#+-=|{}.!"
+    return "".join(f"\\{char}" if char in escape_chars else char for char in text)

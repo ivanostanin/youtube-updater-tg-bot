@@ -2,7 +2,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 
 from ..database.models import Video, YouTubeChannel
-from ..utils.formatters import format_group_discussion_prompt
+from ..utils.formatters import escape_markdown_v2, format_group_discussion_prompt
 from ..utils.i18n import translate
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 
@@ -43,6 +43,7 @@ class NotificationService:
                 chat_id=chat_telegram_id,
                 text=message,
                 disable_web_page_preview=False,
+                parse_mode="MarkdownV2",
             )
 
             logger.info(
@@ -114,13 +115,13 @@ class NotificationService:
                 "notifications.video.channel",
                 locale=locale,
                 request_id=request_id,
-                channel_name=channel.channel_name,
+                channel_name=escape_markdown_v2(channel.channel_name),
             ),
             translate(
                 "notifications.video.video",
                 locale=locale,
                 request_id=request_id,
-                video_title=title,
+                video_title=escape_markdown_v2(title),
             ),
         ]
 
@@ -131,7 +132,7 @@ class NotificationService:
                         "notifications.video.description",
                         locale=locale,
                         request_id=request_id,
-                        video_description=description,
+                        video_description=escape_markdown_v2(description),
                     ),
                     "",
                 ]
@@ -143,14 +144,16 @@ class NotificationService:
                     "notifications.video.watch",
                     locale=locale,
                     request_id=request_id,
-                    video_url=video.url,
+                    video_url=escape_markdown_v2(video.url),
                 ),
                 "",
                 translate(
                     "notifications.video.published",
                     locale=locale,
                     request_id=request_id,
-                    published_at=video.published_at.strftime("%B %d, %Y at %I:%M %p UTC"),
+                    published_at=escape_markdown_v2(
+                        video.published_at.strftime("%B %d, %Y at %I:%M %p UTC")
+                    ),
                 ),
             ]
         )
@@ -202,7 +205,7 @@ class NotificationService:
                 context_key,
                 locale=locale,
                 request_id=correlation_id,
-                chat_title=audience or "",
+                chat_title=escape_markdown_v2(audience or ""),
             )
 
             message = translate(
@@ -210,15 +213,16 @@ class NotificationService:
                 locale=locale,
                 request_id=correlation_id,
                 intro=intro,
-                channel_name=channel.channel_name,
+                channel_name=escape_markdown_v2(channel.channel_name),
                 context_line=context_line,
-                channel_url=channel.channel_url,
+                channel_url=escape_markdown_v2(channel.channel_url),
             )
 
             sent_message = await self.bot.send_message(
                 chat_id=chat_telegram_id,
                 text=message,
                 disable_web_page_preview=True,
+                parse_mode="MarkdownV2",
             )
 
             logger.info(
@@ -264,12 +268,11 @@ class NotificationService:
                 "notifications.error",
                 locale=locale,
                 request_id=correlation_id,
-                error_message=error_message,
+                error_message=escape_markdown_v2(error_message),
             )
 
             sent_message = await self.bot.send_message(
-                chat_id=chat_telegram_id,
-                text=message,
+                chat_id=chat_telegram_id, text=message, parse_mode="MarkdownV2"
             )
 
             logger.info(

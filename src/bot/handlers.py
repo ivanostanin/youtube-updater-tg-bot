@@ -44,7 +44,7 @@ from ..database.repository import (
 from ..services import ACLService
 from ..utils import metrics
 from ..utils.config import settings
-from ..utils.formatters import format_subscription_list
+from ..utils.formatters import escape_markdown_v2, format_subscription_list
 from ..utils.i18n import translate
 from ..utils.locale_codes import SUPPORTED_LOCALES, normalize_locale_code
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
@@ -204,12 +204,12 @@ class BotHandlers:
         """Return a short banner describing the current channel context."""
         if target_chat.chat_type != "channel":
             return None
-        channel_title = target_chat.title or target_chat.chat_id
+        channel_title = escape_markdown_v2(target_chat.title or target_chat.chat_id)
         return self._translate(
             "handlers.channel_context.target_notice",
             locale=locale,
             request_id=request_id,
-            channel_title=channel_title or "",
+            channel_title=channel_title,
         )
 
     @staticmethod
@@ -343,7 +343,9 @@ class BotHandlers:
                     context_cleared = True
                     context_message_key = "handlers.channel_context.revoked"
                     context_message_params = {
-                        "channel_title": channel_chat.title or channel_chat.chat_id
+                        "channel_title": escape_markdown_v2(
+                            channel_chat.title or channel_chat.chat_id
+                        )
                     }
                 else:
                     verified, message_key, message_params = await self._revalidate_channel_target(
@@ -526,7 +528,7 @@ class BotHandlers:
         request_id: str,
     ) -> tuple[bool, str | None, dict[str, Any]]:
         """Re-verify Telegram admin status and bot permissions for the active channel."""
-        channel_label = channel_chat.title or channel_chat.chat_id
+        channel_label = escape_markdown_v2(channel_chat.title or channel_chat.chat_id)
         if self.acl_service is not None:
             is_admin = await self.acl_service.verify_admin(
                 chat_id=channel_chat.chat_id,
@@ -627,7 +629,8 @@ class BotHandlers:
                         "handlers.channel_context.forward_link_missing",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 await self.channel_link_command(update=update, context=context)
                 return True
@@ -648,7 +651,8 @@ class BotHandlers:
                         locale=locale,
                         request_id=request_id,
                         **(message_params or {}),
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 return True
 
@@ -662,10 +666,13 @@ class BotHandlers:
                     "handlers.channel_context.forward_switch_success",
                     locale=locale,
                     request_id=request_id,
-                    channel_title=forwarded_chat.title
-                    or forwarded_chat.username
-                    or forwarded_chat.id,
-                )
+                    channel_title=escape_markdown_v2(
+                        forwarded_chat.title
+                        or forwarded_chat.username
+                        or str(forwarded_chat.id)
+                    ),
+                ),
+                parse_mode="MarkdownV2",
             )
             return True
 
@@ -996,7 +1003,8 @@ class BotHandlers:
                     "handlers.channel_link.private_only",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             return
 
@@ -1014,7 +1022,8 @@ class BotHandlers:
                         "handlers.channel_link.invalid_identifier",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 return
         elif forwarded_channel is not None:
@@ -1026,7 +1035,8 @@ class BotHandlers:
                     "handlers.channel_link.bot_unavailable",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             metrics.record_channel_link("error")
             return
@@ -1045,7 +1055,8 @@ class BotHandlers:
                         "handlers.channel_link.lookup_failed",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._warning(
                     "Failed to resolve channel for linking",
@@ -1067,7 +1078,8 @@ class BotHandlers:
                     "handlers.channel_link.forward_hint",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             metrics.record_channel_link("denied")
             return
@@ -1078,7 +1090,8 @@ class BotHandlers:
                     "handlers.channel_link.invalid_type",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             metrics.record_channel_link("denied")
             return
@@ -1091,7 +1104,8 @@ class BotHandlers:
                     "handlers.channel_link.permission_check_failed",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             self._error(
                 "Failed to verify user admin status for channel link",
@@ -1110,8 +1124,11 @@ class BotHandlers:
                     "handlers.channel_link.admin_only",
                     locale=locale,
                     request_id=request_id,
-                    channel_title=self._chat_display_name(channel_chat) or channel_chat.title or "",
-                )
+                    channel_title=escape_markdown_v2(
+                        self._chat_display_name(channel_chat) or channel_chat.title or ""
+                    ),
+                ),
+                parse_mode="MarkdownV2",
             )
             metrics.record_channel_link("denied")
             return
@@ -1133,7 +1150,8 @@ class BotHandlers:
                     locale=locale,
                     request_id=request_id,
                     missing_permissions=missing_list,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             metrics.record_channel_link("bot_missing")
             return
@@ -1181,7 +1199,7 @@ class BotHandlers:
                 telegram_chat=telegram_chat,
             )
 
-        channel_title = (
+        channel_title = escape_markdown_v2(
             self._chat_display_name(channel_chat)
             or channel_chat.title
             or channel_chat.username
@@ -1194,7 +1212,8 @@ class BotHandlers:
                 request_id=request_id,
                 channel_title=channel_title,
                 ttl_minutes=settings.dm_channel_context_ttl_minutes,
-            )
+            ),
+            parse_mode="MarkdownV2",
         )
         self._info(
             "Linked channel via DM",
@@ -1234,7 +1253,8 @@ class BotHandlers:
                     "handlers.channel_select.private_only",
                     locale=locale_hint,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             return
 
@@ -1270,7 +1290,8 @@ class BotHandlers:
                         "handlers.channel_select.none_linked",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_selection("empty")
                 return
@@ -1289,6 +1310,7 @@ class BotHandlers:
                     ttl_minutes=settings.dm_channel_context_ttl_minutes,
                 ),
                 reply_markup=keyboard,
+                parse_mode="MarkdownV2",
             )
 
     async def handle_channel_select_callback(
@@ -1329,6 +1351,7 @@ class BotHandlers:
                     locale=locale_hint,
                     request_id=request_id,
                 ),
+                parse_mode="MarkdownV2",
             )
             return
 
@@ -1365,6 +1388,7 @@ class BotHandlers:
                         request_id=request_id,
                         ttl_minutes=settings.dm_channel_context_ttl_minutes,
                     ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_selection("cleared")
                 return
@@ -1376,6 +1400,7 @@ class BotHandlers:
                         locale=locale,
                         request_id=request_id,
                     ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_selection("error")
                 return
@@ -1389,6 +1414,7 @@ class BotHandlers:
                         locale=locale,
                         request_id=request_id,
                     ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_selection("error")
                 return
@@ -1402,6 +1428,7 @@ class BotHandlers:
                         locale=locale,
                         request_id=request_id,
                     ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_selection("error")
                 return
@@ -1419,6 +1446,7 @@ class BotHandlers:
                         locale=locale,
                         request_id=request_id,
                     ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_selection("expired")
                 return
@@ -1443,6 +1471,7 @@ class BotHandlers:
                             locale=locale,
                             request_id=request_id,
                         ),
+                        parse_mode="MarkdownV2",
                     )
                     metrics.record_channel_selection("denied")
                     return
@@ -1465,6 +1494,7 @@ class BotHandlers:
                         request_id=request_id,
                         missing_permissions=missing_text,
                     ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_selection("bot_missing")
                 return
@@ -1479,8 +1509,9 @@ class BotHandlers:
                     "handlers.channel_select.selected",
                     locale=locale,
                     request_id=request_id,
-                    channel_title=channel_chat.title or channel_chat.chat_id,
+                    channel_title=escape_markdown_v2(channel_chat.title or channel_chat.chat_id),
                 ),
+                parse_mode="MarkdownV2",
             )
             metrics.record_channel_selection("selected")
 
@@ -1512,7 +1543,8 @@ class BotHandlers:
                     "handlers.channel_unlink.private_only",
                     locale=locale_hint,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             metrics.record_channel_unlink("denied")
             return
@@ -1536,7 +1568,8 @@ class BotHandlers:
                         "handlers.channel_unlink.no_channel_selected",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_unlink("denied")
                 return
@@ -1559,7 +1592,8 @@ class BotHandlers:
                         locale=context_state.locale,
                         request_id=request_id,
                         **context_state.context_message_params,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_unlink("denied")
                 return
@@ -1572,7 +1606,8 @@ class BotHandlers:
                         "handlers.channel_unlink.no_channel_selected",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 metrics.record_channel_unlink("denied")
                 return
@@ -1584,7 +1619,7 @@ class BotHandlers:
             )
             subscription_count = len(subscriptions)
 
-        channel_title = target_chat.title or target_chat.chat_id
+        channel_title = escape_markdown_v2(target_chat.title or target_chat.chat_id)
         prompt_text = self._render_contextual_message(
             "handlers.channel_unlink.prompt",
             locale=locale,
@@ -1617,7 +1652,7 @@ class BotHandlers:
                 ],
             ]
         )
-        await message.reply_text(prompt_text, reply_markup=keyboard)
+        await message.reply_text(prompt_text, reply_markup=keyboard, parse_mode="MarkdownV2")
         self._info(
             "Prompted channel unlink confirmation",
             request_id=request_id,
@@ -1681,7 +1716,7 @@ class BotHandlers:
             )
             await query.answer(text, show_alert=True)
             if query.message:
-                await query.edit_message_text(text)
+                await query.edit_message_text(text, parse_mode="MarkdownV2")
             metrics.record_channel_unlink("cancelled")
             return
         if action != "confirm":
@@ -1789,7 +1824,9 @@ class BotHandlers:
                         "handlers.channel_unlink.revoked",
                         locale=locale,
                         request_id=request_id,
-                        channel_title=channel_chat.title or channel_chat.chat_id,
+                        channel_title=escape_markdown_v2(
+                            channel_chat.title or channel_chat.chat_id
+                        ),
                     ),
                     show_alert=True,
                 )
@@ -1838,15 +1875,17 @@ class BotHandlers:
             locale=locale,
             request_id=request_id,
             target_chat=channel_chat,
-            channel_title=channel_chat.title or channel_chat.chat_id,
+            channel_title=escape_markdown_v2(channel_chat.title or channel_chat.chat_id),
             subscription_count=len(subscriptions),
             webhook_count=webhook_cleanups,
             admin_count=revoked_count,
         )
         if query.message:
-            await query.edit_message_text(summary_text)
+            await query.edit_message_text(summary_text, parse_mode="MarkdownV2")
         else:
-            await context.bot.send_message(chat_id=telegram_chat.id, text=summary_text)
+            await context.bot.send_message(
+                chat_id=telegram_chat.id, text=summary_text, parse_mode="MarkdownV2"
+            )
         self._info(
             "Completed channel unlink cleanup",
             request_id=request_id,
@@ -1860,7 +1899,6 @@ class BotHandlers:
                 "meta_revoked_links": revoked_count,
             },
         )
-        metrics.record_channel_unlink("success")
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -1918,7 +1956,7 @@ class BotHandlers:
             request_id=request_id,
         )
 
-        await message.reply_text(welcome_text)
+        await message.reply_text(welcome_text, parse_mode="MarkdownV2")
         self._debug(
             "Completed /start command",
             request_id=request_id,
@@ -1976,7 +2014,7 @@ class BotHandlers:
             request_id=request_id,
         )
 
-        await message.reply_text(help_text)
+        await message.reply_text(help_text, parse_mode="MarkdownV2")
         self._debug(
             "Completed /help command",
             request_id=request_id,
@@ -2033,7 +2071,7 @@ class BotHandlers:
         prompt_text = self._language_prompt(locale=locale, request_id=request_id)
         keyboard = self._language_keyboard(locale=locale, request_id=request_id)
 
-        await message.reply_text(prompt_text, reply_markup=keyboard)
+        await message.reply_text(prompt_text, reply_markup=keyboard, parse_mode="MarkdownV2")
         self._debug(
             "Rendered language selection prompt",
             request_id=request_id,
@@ -2074,7 +2112,8 @@ class BotHandlers:
                     "handlers.subscribe.missing_url",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             self._debug(
                 "Subscribe command missing URL argument",
@@ -2197,7 +2236,8 @@ class BotHandlers:
                         "handlers.list.no_subscriptions",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._debug(
                     "List command found no chat record",
@@ -2224,7 +2264,8 @@ class BotHandlers:
                         locale=context_state.locale,
                         request_id=request_id,
                         **context_state.context_message_params,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 return
             target_chat = context_state.target_chat
@@ -2239,14 +2280,17 @@ class BotHandlers:
             params: dict[str, str] = {}
             if target_chat.chat_type == "channel":
                 key = "handlers.list.no_active_subscriptions_channel"
-                params["channel_title"] = target_chat.title or target_chat.chat_id
+                params["channel_title"] = escape_markdown_v2(
+                    target_chat.title or target_chat.chat_id
+                )
             await message.reply_text(
                 self._translate(
                     key,
                     locale=locale,
                     request_id=request_id,
                     **params,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             self._debug(
                 "List command found zero subscriptions",
@@ -2273,7 +2317,7 @@ class BotHandlers:
             request_id=request_id,
         )
 
-        await message.reply_text(text)
+        await message.reply_text(text, parse_mode="MarkdownV2")
         self._debug(
             "List command completed",
             request_id=request_id,
@@ -2392,14 +2436,17 @@ class BotHandlers:
             params: dict[str, str] = {}
             if target_chat.chat_type == "channel":
                 key = "handlers.unsubscribe.no_active_subscriptions_channel"
-                params["channel_title"] = target_chat.title or target_chat.chat_id
+                params["channel_title"] = escape_markdown_v2(
+                    target_chat.title or target_chat.chat_id
+                )
             await message.reply_text(
                 self._translate(
                     key,
                     locale=locale,
                     request_id=request_id,
                     **params,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             self._debug(
                 "Unsubscribe command found zero subscriptions",
@@ -2413,7 +2460,7 @@ class BotHandlers:
         keyboard = [
             [
                 InlineKeyboardButton(
-                    text=f"❌ {sub.channel.channel_name}",
+                    text=f"❌ {escape_markdown_v2(sub.channel.channel_name)}",
                     callback_data=f"unsub_{sub.channel.id}",
                 )
             ]
@@ -2447,6 +2494,7 @@ class BotHandlers:
         await message.reply_text(
             prompt_text,
             reply_markup=reply_markup,
+            parse_mode="MarkdownV2",
         )
         self._debug(
             "Rendered unsubscribe keyboard",
@@ -2551,10 +2599,12 @@ class BotHandlers:
                     "handlers.language.already_selected",
                     locale=locale,
                     request_id=request_id,
-                    language_name=self._translate(
-                        f"handlers.language.name.{normalized_locale}",
-                        locale=locale,
-                        request_id=request_id,
+                    language_name=escape_markdown_v2(
+                        self._translate(
+                            f"handlers.language.name.{normalized_locale}",
+                            locale=locale,
+                            request_id=request_id,
+                        )
                     ),
                 )
                 await query.answer(current_message, show_alert=True)
@@ -2568,13 +2618,15 @@ class BotHandlers:
             "handlers.language.updated",
             locale=locale,
             request_id=request_id,
-            language_name=self._translate(
-                f"handlers.language.name.{locale}",
-                locale=locale,
-                request_id=request_id,
+            language_name=escape_markdown_v2(
+                self._translate(
+                    f"handlers.language.name.{locale}",
+                    locale=locale,
+                    request_id=request_id,
+                )
             ),
         )
-        await query.edit_message_text(confirmation)
+        await query.edit_message_text(confirmation, parse_mode="MarkdownV2")
 
     async def handle_unsubscribe_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -2606,7 +2658,7 @@ class BotHandlers:
                 request_id=request_id,
             )
             await query.answer(message_text, show_alert=True)
-            await query.edit_message_text(message_text)
+            await query.edit_message_text(message_text, parse_mode="MarkdownV2")
             self._warning(
                 "Callback query missing data",
                 request_id=request_id,
@@ -2623,7 +2675,8 @@ class BotHandlers:
                     "handlers.unsubscribe.callback.cancelled",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             self._debug(
                 "User cancelled unsubscribe flow",
@@ -2641,7 +2694,7 @@ class BotHandlers:
                 request_id=request_id,
             )
             await query.answer(unknown_text, show_alert=True)
-            await query.edit_message_text(unknown_text)
+            await query.edit_message_text(unknown_text, parse_mode="MarkdownV2")
             self._warning(
                 "Unknown unsubscribe callback action",
                 request_id=request_id,
@@ -2661,7 +2714,7 @@ class BotHandlers:
                 request_id=request_id,
             )
             await query.answer(parse_text, show_alert=True)
-            await query.edit_message_text(parse_text)
+            await query.edit_message_text(parse_text, parse_mode="MarkdownV2")
             self._warning(
                 "Failed to parse channel id from callback",
                 request_id=request_id,
@@ -2683,7 +2736,7 @@ class BotHandlers:
                 request_id=request_id,
             )
             await query.answer(missing_context_text, show_alert=True)
-            await query.edit_message_text(missing_context_text)
+            await query.edit_message_text(missing_context_text, parse_mode="MarkdownV2")
             self._warning(
                 "Unsubscribe callback missing user or chat context",
                 request_id=request_id,
@@ -2726,7 +2779,8 @@ class BotHandlers:
                         "handlers.unsubscribe.callback.no_chat",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._debug(
                     "Unsubscribe callback missing chat binding",
@@ -2753,7 +2807,8 @@ class BotHandlers:
                         locale=context_state.locale,
                         request_id=request_id,
                         **context_state.context_message_params,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 return
             locale = context_state.locale
@@ -2794,7 +2849,8 @@ class BotHandlers:
                         "handlers.unsubscribe.callback.remove_failed",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._error(
                     "Failed to remove subscription during callback",
@@ -2813,7 +2869,8 @@ class BotHandlers:
                         "handlers.unsubscribe.callback.removing",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 webhook_success = await self.manage_channel_webhook(
                     channel.channel_id, "unsubscribe", request_id=request_id
@@ -2832,7 +2889,8 @@ class BotHandlers:
                         "handlers.unsubscribe.callback.removed",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._info(
                     "Subscription removed via callback",
@@ -2848,7 +2906,8 @@ class BotHandlers:
                         "handlers.unsubscribe.callback.removed_with_warning",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._warning(
                     "Webhook cleanup failed after unsubscribe",
@@ -2910,7 +2969,8 @@ class BotHandlers:
                 "handlers.subscribe.processing",
                 locale=locale,
                 request_id=correlation_id,
-            )
+            ),
+            parse_mode="MarkdownV2",
         )
 
         try:
@@ -2921,7 +2981,8 @@ class BotHandlers:
                         "handlers.subscribe.resolve_failed",
                         locale=locale,
                         request_id=correlation_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._warning(
                     "Unable to resolve YouTube URL",
@@ -2966,7 +3027,8 @@ class BotHandlers:
                             locale=context_state.locale,
                             request_id=correlation_id,
                             **context_state.context_message_params,
-                        )
+                        ),
+                        parse_mode="MarkdownV2",
                     )
                     return
                 target_chat = context_state.target_chat
@@ -2994,10 +3056,10 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
-                                video_title=video_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
+                                video_title=escape_markdown_v2(video_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         self._debug(
                             "Subscription already exists for video URL",
@@ -3035,9 +3097,9 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         webhook_success = await self.manage_channel_webhook(
                             channel_info["id"], "subscribe", request_id=correlation_id
@@ -3072,10 +3134,10 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
-                                video_title=video_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
+                                video_title=escape_markdown_v2(video_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         self._info(
                             "Subscription created via video URL",
@@ -3092,10 +3154,10 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
-                                video_title=video_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
+                                video_title=escape_markdown_v2(video_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         self._warning(
                             "Subscription created but webhook setup failed",
@@ -3113,7 +3175,8 @@ class BotHandlers:
                             locale=locale,
                             request_id=correlation_id,
                             target_chat=target_chat,
-                        )
+                        ),
+                        parse_mode="MarkdownV2",
                     )
                     self._warning(
                         "Playlist subscriptions not supported",
@@ -3142,9 +3205,9 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         self._debug(
                             "Subscription already exists for channel URL",
@@ -3180,9 +3243,9 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         webhook_success = await self.manage_channel_webhook(
                             channel_info["id"], "subscribe", request_id=correlation_id
@@ -3217,9 +3280,9 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         self._info(
                             "Subscription created via channel URL",
@@ -3236,9 +3299,9 @@ class BotHandlers:
                                 locale=locale,
                                 request_id=correlation_id,
                                 target_chat=target_chat,
-                                channel_name=channel_info["title"],
+                                channel_name=escape_markdown_v2(channel_info["title"]),
                             ),
-                            parse_mode="Markdown",
+                            parse_mode="MarkdownV2",
                         )
                         self._warning(
                             "Subscription created but webhook setup failed",
@@ -3262,7 +3325,8 @@ class BotHandlers:
                     "handlers.subscribe.error",
                     locale=locale,
                     request_id=correlation_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3341,7 +3405,8 @@ class BotHandlers:
                         "handlers.message.unable_to_extract_url",
                         locale=locale,
                         request_id=request_id,
-                    )
+                    ),
+                    parse_mode="MarkdownV2",
                 )
                 self._warning(
                     "Unable to extract URL from text message",
@@ -3356,7 +3421,8 @@ class BotHandlers:
                     "handlers.message.prompt_private",
                     locale=locale,
                     request_id=request_id,
-                )
+                ),
+                parse_mode="MarkdownV2",
             )
             self._debug(
                 "Prompted user for YouTube URL",

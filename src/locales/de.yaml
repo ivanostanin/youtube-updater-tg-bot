@@ -238,3 +238,6 @@ notifications:
 
       Kanal-URL: {channel_url}
   error: "❌ **Fehler:** {error_message}"
+
+errors:
+  generic: "❌ Bei der Bearbeitung Ihrer Anfrage ist ein Fehler aufgetreten. Bitte versuchen Sie es später erneut."
