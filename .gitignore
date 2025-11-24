@@ -81,7 +81,7 @@ Thumbs.db
 web-bundles/
 AGENTS.md
 
-#Claude Code
+# Claude Code
 .claude/
 
 docs/.archive/
@@ -90,3 +90,6 @@ docs/.archive/
 node_modules/
 package-lock.json
 package.json
+
+# Gemini CLI
+.gemini/
