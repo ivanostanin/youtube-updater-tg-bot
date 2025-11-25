@@ -133,19 +133,19 @@ async def test_subscribe_command_with_valid_url(
     mock_telegram_context.args = ["https://youtube.com/@testchannel"]
 
     # Mock handle_youtube_url to verify it was called
-    handlers.handle_youtube_url = AsyncMock()
+    with patch.object(handlers, 'handle_youtube_url', new_callable=AsyncMock) as mock_handle_youtube_url:
 
-    await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
+        await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
 
-    # Verify handle_youtube_url was called with the URL
-    handlers.handle_youtube_url.assert_called_once()
-    call_args, call_kwargs = handlers.handle_youtube_url.call_args
-    assert call_args[:3] == (
-        mock_telegram_update,
-        mock_telegram_context,
-        "https://youtube.com/@testchannel",
-    )
-    assert call_kwargs.get("request_id")
+        # Verify handle_youtube_url was called with the URL
+        mock_handle_youtube_url.assert_called_once()
+        call_args, call_kwargs = mock_handle_youtube_url.call_args
+        assert call_args[:3] == (
+            mock_telegram_update,
+            mock_telegram_context,
+            "https://youtube.com/@testchannel",
+        )
+        assert call_kwargs.get("request_id")
 
 
 @allure.feature("Bot Handlers")
@@ -252,44 +252,43 @@ async def test_list_command_creates_user_for_group_admin(
 ):
     """Group admins without prior DM history should still be able to list subscriptions."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.acl_service.require_admin = AsyncMock(return_value=True)
+    with patch.object(handlers.acl_service, 'require_admin', new=AsyncMock(return_value=True)):
+        mock_telegram_update.effective_chat.type = "supergroup"
+        mock_telegram_update.message.chat.type = "supergroup"
+        mock_telegram_update.effective_chat.username = "testgroup"
+        mock_telegram_update.message.chat.username = "testgroup"
 
-    mock_telegram_update.effective_chat.type = "supergroup"
-    mock_telegram_update.message.chat.type = "supergroup"
-    mock_telegram_update.effective_chat.username = "testgroup"
-    mock_telegram_update.message.chat.username = "testgroup"
+        chat = Chat(
+            chat_id=str(mock_telegram_update.effective_chat.id),
+            chat_type=mock_telegram_update.effective_chat.type,
+            title="Test Group",
+        )
+        async_db_session.add(chat)
+        await async_db_session.flush()
 
-    chat = Chat(
-        chat_id=str(mock_telegram_update.effective_chat.id),
-        chat_type=mock_telegram_update.effective_chat.type,
-        title="Test Group",
-    )
-    async_db_session.add(chat)
-    await async_db_session.flush()
+        channel = YouTubeChannel(
+            channel_id="UCtest123",
+            channel_name="Test Channel",
+            channel_url="https://youtube.com/channel/UCtest123",
+            feed_url="https://youtube.com/feeds/videos.xml?channel_id=UCtest123",
+        )
+        async_db_session.add(channel)
+        await async_db_session.flush()
 
-    channel = YouTubeChannel(
-        channel_id="UCtest123",
-        channel_name="Test Channel",
-        channel_url="https://youtube.com/channel/UCtest123",
-        feed_url="https://youtube.com/feeds/videos.xml?channel_id=UCtest123",
-    )
-    async_db_session.add(channel)
-    await async_db_session.flush()
+        subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
+        async_db_session.add(subscription)
+        await async_db_session.commit()
 
-    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
-    async_db_session.add(subscription)
-    await async_db_session.commit()
+        with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+            await handlers.list_command(mock_telegram_update, mock_telegram_context)
 
-    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
-        await handlers.list_command(mock_telegram_update, mock_telegram_context)
+        mock_telegram_update.message.reply_text.assert_called_once()
+        call_args = mock_telegram_update.message.reply_text.call_args[0][0]
+        assert "Test Channel" in call_args
 
-    mock_telegram_update.message.reply_text.assert_called_once()
-    call_args = mock_telegram_update.message.reply_text.call_args[0][0]
-    assert "Test Channel" in call_args
-
-    user_repo = UserRepository(async_db_session)
-    db_user = await user_repo.get_user_by_telegram_id("123456789")
-    assert db_user is not None
+        user_repo = UserRepository(async_db_session)
+        db_user = await user_repo.get_user_by_telegram_id("123456789")
+        assert db_user is not None
 
 
 @allure.feature("Bot Handlers")
@@ -461,55 +460,55 @@ async def test_handle_unsubscribe_callback_success(
         async_db_session: Async database session fixture.
     """
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.manage_channel_webhook = AsyncMock(return_value=True)
-    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=False)
+    with patch.object(handlers, 'manage_channel_webhook', new_callable=AsyncMock, return_value=True), \
+         patch.object(handlers, 'check_if_channel_has_other_subscribers', new_callable=AsyncMock, return_value=False):
 
-    # Create user, chat, channel, and subscription
-    user = User(
-        telegram_id="123456789",
-        username="testuser",
-        first_name="Test",
-        last_name="User",
-    )
-    async_db_session.add(user)
-    await async_db_session.flush()
+        # Create user, chat, channel, and subscription
+        user = User(
+            telegram_id="123456789",
+            username="testuser",
+            first_name="Test",
+            last_name="User",
+        )
+        async_db_session.add(user)
+        await async_db_session.flush()
 
-    chat = Chat(
-        chat_id=str(mock_telegram_update.effective_chat.id),
-        chat_type=mock_telegram_update.effective_chat.type,
-        title=mock_telegram_update.effective_chat.username,
-    )
-    async_db_session.add(chat)
-    await async_db_session.flush()
+        chat = Chat(
+            chat_id=str(mock_telegram_update.effective_chat.id),
+            chat_type=mock_telegram_update.effective_chat.type,
+            title=mock_telegram_update.effective_chat.username,
+        )
+        async_db_session.add(chat)
+        await async_db_session.flush()
 
-    channel = YouTubeChannel(
-        channel_id="UCtest123",
-        channel_name="Test Channel",
-        channel_url="https://youtube.com/channel/UCtest123",
-        feed_url="https://youtube.com/feeds/videos.xml?channel_id=UCtest123",
-    )
-    async_db_session.add(channel)
-    await async_db_session.flush()
+        channel = YouTubeChannel(
+            channel_id="UCtest123",
+            channel_name="Test Channel",
+            channel_url="https://youtube.com/channel/UCtest123",
+            feed_url="https://youtube.com/feeds/videos.xml?channel_id=UCtest123",
+        )
+        async_db_session.add(channel)
+        await async_db_session.flush()
 
-    subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
-    async_db_session.add(subscription)
-    await async_db_session.commit()
+        subscription = Subscription(chat_id=chat.id, channel_id=channel.id, is_active=True)
+        async_db_session.add(subscription)
+        await async_db_session.commit()
 
-    # Setup callback query
-    query = MagicMock(spec=CallbackQuery)
-    query.data = f"unsub_{channel.id}"
-    query.answer = AsyncMock()
-    query.edit_message_text = AsyncMock()
-    mock_telegram_update.callback_query = query
+        # Setup callback query
+        query = MagicMock(spec=CallbackQuery)
+        query.data = f"unsub_{channel.id}"
+        query.answer = AsyncMock()
+        query.edit_message_text = AsyncMock()
+        mock_telegram_update.callback_query = query
 
-    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
-        await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
+        with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+            await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
 
-    # Verify callback was answered and success message shown
-    query.answer.assert_called_once()
-    assert query.edit_message_text.call_count >= 1
-    last_call = query.edit_message_text.call_args[0][0]
-    assert "Subscription removed successfully" in last_call
+        # Verify callback was answered and success message shown
+        query.answer.assert_called_once()
+        assert query.edit_message_text.call_count >= 1
+        last_call = query.edit_message_text.call_args[0][0]
+        assert "Subscription removed successfully" in last_call
 
 
 @allure.feature("Bot Handlers")
@@ -561,16 +560,15 @@ async def test_handle_message_with_youtube_url(
         mock_youtube_api: Mock YouTube API fixture.
     """
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.handle_youtube_url = AsyncMock()
-
     mock_telegram_update.message.text = "Check this out: https://youtube.com/@testchannel"
 
-    await handlers.handle_message(mock_telegram_update, mock_telegram_context)
+    with patch.object(handlers, "handle_youtube_url", new_callable=AsyncMock) as url_handler:
+        await handlers.handle_message(mock_telegram_update, mock_telegram_context)
 
-    # Verify handle_youtube_url was called
-    handlers.handle_youtube_url.assert_called_once()
-    call_args = handlers.handle_youtube_url.call_args[0]
-    assert "youtube.com" in call_args[2]
+        # Verify handle_youtube_url was called
+        url_handler.assert_called_once()
+        call_args = url_handler.call_args[0]
+        assert "youtube.com" in call_args[2]
 
 
 @allure.feature("Bot Handlers")
@@ -638,11 +636,11 @@ async def test_subscribe_command_logs_context(
 ):
     """Subscribe command emits structured logging context."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.handle_youtube_url = AsyncMock()
     mock_telegram_context.args = ["https://youtube.com/@demo"]
     caplog.set_level(logging.DEBUG)
 
-    await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
+    with patch.object(handlers, "handle_youtube_url", new_callable=AsyncMock):
+        await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
 
     records = [
         record
@@ -666,11 +664,11 @@ async def test_handle_message_logs_context(
 ):
     """handle_message emits debug log with chat/user/request identifiers."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.handle_youtube_url = AsyncMock()
     mock_telegram_update.message.text = "Watch https://youtube.com/@context"
     caplog.set_level(logging.DEBUG)
 
-    await handlers.handle_message(mock_telegram_update, mock_telegram_context)
+    with patch.object(handlers, "handle_youtube_url", new_callable=AsyncMock):
+        await handlers.handle_message(mock_telegram_update, mock_telegram_context)
 
     records = [
         record
@@ -791,30 +789,30 @@ async def test_subscribe_sets_channel_webhook(
 ):
     """Ensure the channel stores the callback URL after initial subscription."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.manage_channel_webhook = AsyncMock(return_value=True)
-    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=False)
+    with patch.object(handlers, 'manage_channel_webhook', new_callable=AsyncMock, return_value=True), \
+         patch.object(handlers, 'check_if_channel_has_other_subscribers', new_callable=AsyncMock, return_value=False):
 
-    mock_youtube_api.resolve_url = AsyncMock(
-        return_value={
-            "id": "UCtest123",
-            "title": "Test Channel",
-            "url": "https://youtube.com/channel/UCtest123",
-        }
-    )
-    mock_youtube_api.get_feed_url = MagicMock(
-        return_value="https://youtube.com/feeds/videos.xml?channel_id=UCtest123"
-    )
-
-    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
-        await handlers.handle_youtube_url(
-            mock_telegram_update,
-            mock_telegram_context,
-            "https://youtube.com/@testchannel",
+        mock_youtube_api.resolve_url = AsyncMock(
+            return_value={
+                "id": "UCtest123",
+                "title": "Test Channel",
+                "url": "https://youtube.com/channel/UCtest123",
+            }
+        )
+        mock_youtube_api.get_feed_url = MagicMock(
+            return_value="https://youtube.com/feeds/videos.xml?channel_id=UCtest123"
         )
 
-    subscription_rows = await async_db_session.execute(select(Subscription))
-    subscription = subscription_rows.scalar_one()
-    assert subscription.webhook_url == settings.webhook_callback_url
+        with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+            await handlers.handle_youtube_url(
+                mock_telegram_update,
+                mock_telegram_context,
+                "https://youtube.com/@testchannel",
+            )
+
+        subscription_rows = await async_db_session.execute(select(Subscription))
+        subscription = subscription_rows.scalar_one()
+        assert subscription.webhook_url == settings.webhook_callback_url
 
 
 @allure.feature("Bot Handlers")
@@ -956,13 +954,10 @@ async def test_dm_subscription_targets_channel_context(
 ):
     """Ensure DM subscriptions use the selected channel chat."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.manage_channel_webhook = AsyncMock(return_value=True)
-    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=True)
     verify_patch = AsyncMock(return_value=(True, []))
     mock_acl = MagicMock(spec=ACLService)
     mock_acl.verify_admin = AsyncMock(return_value=True)
     handlers.acl_service = mock_acl
-    handlers._verify_bot_permissions = verify_patch
 
     user_repo = UserRepository(async_db_session)
     db_user = await user_repo.get_or_create_user(
@@ -1007,7 +1002,17 @@ async def test_dm_subscription_targets_channel_context(
         return_value="https://youtube.com/feeds/videos.xml?channel_id=UCtest999"
     )
 
-    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(handlers, "manage_channel_webhook", new_callable=AsyncMock, return_value=True),
+        patch.object(
+            handlers,
+            "check_if_channel_has_other_subscribers",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch.object(handlers, "_verify_bot_permissions", verify_patch),
+    ):
         mock_telegram_context.args = ["https://youtube.com/@testchannel"]
         await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
 
@@ -1543,7 +1548,7 @@ async def test_channel_select_command_renders_keyboard(
     # 2 channel buttons + 1 clear button
     assert len(markup.inline_keyboard) == 3
     assert any(
-        "chanselect::set" in button.callback_data
+        "chanselect::set" in button.callback_data  # type: ignore[operator]
         for row in markup.inline_keyboard
         for button in row
     )
@@ -1626,8 +1631,6 @@ async def test_unsubscribe_clears_channel_webhook(
 ):
     """Ensure webhook metadata resets when the last subscriber leaves."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    handlers.manage_channel_webhook = AsyncMock(return_value=True)
-    handlers.check_if_channel_has_other_subscribers = AsyncMock(return_value=False)
 
     chat = Chat(
         chat_id=str(mock_telegram_update.effective_chat.id),
@@ -1654,7 +1657,16 @@ async def test_unsubscribe_clears_channel_webhook(
     query.edit_message_text = AsyncMock()
     mock_telegram_update.callback_query = query
 
-    with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
+    with (
+        patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session),
+        patch.object(handlers, "manage_channel_webhook", new_callable=AsyncMock, return_value=True),
+        patch.object(
+            handlers,
+            "check_if_channel_has_other_subscribers",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
         await handlers.handle_unsubscribe_callback(mock_telegram_update, mock_telegram_context)
 
     updated_subscription = await async_db_session.get(Subscription, subscription.id)

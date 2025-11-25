@@ -2,7 +2,9 @@
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+from telegram import Bot
 from telegramify_markdown import markdownify
 
 from src.bot.notifications import NotificationService
@@ -28,7 +30,7 @@ def _build_channel():
 
 async def test_format_video_message_includes_translated_labels():
     """Notification body should include localized labels."""
-    service = NotificationService(bot=SimpleNamespace())
+    service = NotificationService(bot=AsyncMock(spec=Bot))
     message = service.format_video_message(
         video=_build_video(),
         channel=_build_channel(),

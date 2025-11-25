@@ -43,7 +43,7 @@ def test_setup_logging_is_idempotent(monkeypatch, tmp_path):
         root_logger.removeHandler(handler)
         if isinstance(handler, py_logging.FileHandler):
             handler.close()
-    mod._logging_configured = False
+    monkeypatch.setattr(mod, "_logging_configured", False)
 
 
 @allure.feature(FEATURE)

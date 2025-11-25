@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import allure
 import pytest
@@ -35,7 +36,7 @@ def _metric_value(counter, labels: dict[str, str]) -> float:
     for metric in counter.collect():
         for sample in metric.samples:
             if all(sample.labels.get(key) == value for key, value in labels.items()):
-                return sample.value
+                return cast(float, sample.value)
     return 0.0
 
 
@@ -86,12 +87,12 @@ async def test_lease_refresher_renews_candidates(async_db_engine, monkeypatch):
     assert fake_manager.subscribe_calls == ["UCrenew"]
 
     async with session_maker() as session:
-        channel = await ChannelRepository(session).get_channel_by_id("UCrenew")
-        assert channel is not None
-        assert channel.webhook_callback_url == "https://new.example/webhook"
-        assert channel.webhook_lease_seconds == 3600
-        assert channel.webhook_lease_expires_at is not None
-        expires_at = channel.webhook_lease_expires_at
+        channel_obj = await ChannelRepository(session).get_channel_by_id("UCrenew")
+        assert channel_obj is not None
+        assert channel_obj.webhook_callback_url == "https://new.example/webhook"
+        assert channel_obj.webhook_lease_seconds == 3600
+        assert channel_obj.webhook_lease_expires_at is not None
+        expires_at = channel_obj.webhook_lease_expires_at
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=UTC)
         assert expires_at > datetime.now(UTC)

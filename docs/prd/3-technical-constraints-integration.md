@@ -286,7 +286,7 @@ def resolve_url(self, url: str) -> dict[str, Any] | None:
 2. Install dependencies: uv pip install -e ".[dev]"
 3. Run pre-commit hooks: pre-commit install && pre-commit run --all-files
 4. Run tests: pytest --alluredir=allure-results
-5. Type check: mypy src/
+5. Type check: mypy src/ tests/
 6. Lint: ruff check src/ tests/
 7. Format: ruff format src/ tests/
 8. Run bot: python -m src.main

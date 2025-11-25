@@ -25,7 +25,7 @@ from src.database.repository import (
 @allure.story("Models")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_user_model_creation(async_db_session):
+async def test_user_model_creation(async_db_session) -> None:
     """Test User model creation and basic attributes.
 
     Args:
@@ -50,7 +50,7 @@ async def test_user_model_creation(async_db_session):
 @allure.story("Models")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_youtube_channel_model_creation(async_db_session):
+async def test_youtube_channel_model_creation(async_db_session) -> None:
     """Test YouTubeChannel model creation and attributes.
 
     Args:
@@ -74,7 +74,7 @@ async def test_youtube_channel_model_creation(async_db_session):
 @allure.story("Models")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_model_with_relationships(async_db_session):
+async def test_subscription_model_with_relationships(async_db_session) -> None:
     """Test Subscription model with user and channel relationships.
 
     Args:
@@ -109,7 +109,7 @@ async def test_subscription_model_with_relationships(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_user_repository_create_new_user(async_db_session):
+async def test_user_repository_create_new_user(async_db_session) -> None:
     """Test UserRepository creates new user when doesn't exist.
 
     Args:
@@ -133,7 +133,7 @@ async def test_user_repository_create_new_user(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_user_repository_get_existing_user(async_db_session):
+async def test_user_repository_get_existing_user(async_db_session) -> None:
     """Test UserRepository returns existing user without creating duplicate.
 
     Args:
@@ -158,7 +158,7 @@ async def test_user_repository_get_existing_user(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_user_repository_get_by_telegram_id(async_db_session):
+async def test_user_repository_get_by_telegram_id(async_db_session) -> None:
     """Test UserRepository retrieves user by Telegram ID.
 
     Args:
@@ -178,7 +178,7 @@ async def test_user_repository_get_by_telegram_id(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_chat_repository_tracks_user_relationship(async_db_session):
+async def test_chat_repository_tracks_user_relationship(async_db_session) -> None:
     """Ensure ChatRepository persists and updates user references for chats."""
     user_repo = UserRepository(async_db_session)
     chat_repo = ChatRepository(async_db_session)
@@ -210,7 +210,7 @@ async def test_chat_repository_tracks_user_relationship(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_channel_repository_create_new_channel(async_db_session):
+async def test_channel_repository_create_new_channel(async_db_session) -> None:
     """Test ChannelRepository creates new channel when doesn't exist.
 
     Args:
@@ -234,7 +234,7 @@ async def test_channel_repository_create_new_channel(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_channel_repository_get_existing_channel(async_db_session):
+async def test_channel_repository_get_existing_channel(async_db_session) -> None:
     """Test ChannelRepository returns existing channel without duplicate.
 
     Args:
@@ -263,7 +263,7 @@ async def test_channel_repository_get_existing_channel(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_channel_repository_get_all_active_channels(async_db_session):
+async def test_channel_repository_get_all_active_channels(async_db_session) -> None:
     """Test ChannelRepository retrieves all active channels.
 
     Args:
@@ -298,7 +298,7 @@ async def test_channel_repository_get_all_active_channels(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_subscription_repository_create_subscription(async_db_session):
+async def test_subscription_repository_create_subscription(async_db_session) -> None:
     """Test SubscriptionRepository creates new subscription.
 
     Args:
@@ -333,7 +333,7 @@ async def test_subscription_repository_create_subscription(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_repository_create_subscription_deduplicates(async_db_session):
+async def test_subscription_repository_create_subscription_deduplicates(async_db_session) -> None:
     """Ensure create_subscription cleans up stray duplicates before reactivation."""
 
     chat_repo = ChatRepository(async_db_session)
@@ -370,7 +370,7 @@ async def test_subscription_repository_create_subscription_deduplicates(async_db
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_repository_get_user_subscriptions(async_db_session):
+async def test_subscription_repository_get_user_subscriptions(async_db_session) -> None:
     """Test SubscriptionRepository retrieves user's subscriptions.
 
     Args:
@@ -409,7 +409,7 @@ async def test_subscription_repository_get_user_subscriptions(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_repository_get_subscription(async_db_session):
+async def test_subscription_repository_get_subscription(async_db_session) -> None:
     """Test SubscriptionRepository retrieves specific subscription.
 
     Args:
@@ -445,7 +445,7 @@ async def test_subscription_repository_get_subscription(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_repository_delete_subscription(async_db_session):
+async def test_subscription_repository_delete_subscription(async_db_session) -> None:
     """Test SubscriptionRepository soft deletes subscription.
 
     Args:
@@ -483,7 +483,7 @@ async def test_subscription_repository_delete_subscription(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_repository_handles_duplicate_rows_on_delete(async_db_session):
+async def test_subscription_repository_handles_duplicate_rows_on_delete(async_db_session) -> None:
     """Ensure duplicate subscription rows don't break delete flows and are fully deactivated."""
 
     chat_repo = ChatRepository(async_db_session)
@@ -520,7 +520,7 @@ async def test_subscription_repository_handles_duplicate_rows_on_delete(async_db
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_repository_reactivate_subscription(async_db_session):
+async def test_subscription_repository_reactivate_subscription(async_db_session) -> None:
     """Test SubscriptionRepository reactivates existing subscriptions."""
 
     chat_repo = ChatRepository(async_db_session)
@@ -554,7 +554,7 @@ async def test_subscription_repository_reactivate_subscription(async_db_session)
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscription_repository_get_channel_subscribers(async_db_session):
+async def test_subscription_repository_get_channel_subscribers(async_db_session) -> None:
     """Test SubscriptionRepository retrieves channel subscribers.
 
     Args:
@@ -590,7 +590,7 @@ async def test_subscription_repository_get_channel_subscribers(async_db_session)
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_video_repository_create_video(async_db_session):
+async def test_video_repository_create_video(async_db_session) -> None:
     """Test VideoRepository creates new video.
 
     Args:
@@ -624,7 +624,7 @@ async def test_video_repository_create_video(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_video_repository_get_video_by_id(async_db_session):
+async def test_video_repository_get_video_by_id(async_db_session) -> None:
     """Test VideoRepository retrieves video by YouTube video ID.
 
     Args:
@@ -658,7 +658,7 @@ async def test_video_repository_get_video_by_id(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_notification_repository_create_notification(async_db_session):
+async def test_notification_repository_create_notification(async_db_session) -> None:
     """Test NotificationRepository creates new notification.
 
     Args:
@@ -706,7 +706,7 @@ async def test_notification_repository_create_notification(async_db_session):
 @allure.story("Repositories")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_notification_repository_get_chat_notifications(async_db_session):
+async def test_notification_repository_get_chat_notifications(async_db_session) -> None:
     """Test NotificationRepository retrieves chat notifications.
 
     Args:
@@ -790,11 +790,13 @@ async def test_channel_repository_webhook_metadata_crud(async_db_session):
         channel_id="UCleases",
     )
     assert cleared is True
-    refreshed = await channel_repo.get_channel_by_id("UCleases")
-    assert refreshed.webhook_callback_url is None
-    assert refreshed.webhook_lease_seconds is None
-    assert refreshed.webhook_lease_expires_at is None
-    assert refreshed.webhook_last_verified_at is None
+    # Re-fetch the channel after clearing metadata
+    refreshed_after_clear = await channel_repo.get_channel_by_id("UCleases")
+    assert refreshed_after_clear is not None
+    assert refreshed_after_clear.webhook_callback_url is None
+    assert refreshed_after_clear.webhook_lease_seconds is None
+    assert refreshed_after_clear.webhook_lease_expires_at is None
+    assert refreshed_after_clear.webhook_last_verified_at is None
 
 
 @allure.feature("Database")

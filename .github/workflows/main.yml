@@ -88,7 +88,7 @@ jobs:
         run: uv run ruff check .
 
       - name: Mypy type check
-        run: uv run mypy src
+        run: uv run mypy src tests
 
       - name: Pytest with Allure
         run: uv run pytest --cov=src --cov-report=xml --cov-report=term --alluredir=allure-results

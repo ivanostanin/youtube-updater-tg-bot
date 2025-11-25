@@ -4,7 +4,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 from telegram import Update
-from telegram.ext import Application, ContextTypes
+from telegram.ext import ContextTypes
 
 from src.bot.bot import YouTubeUpdaterBot
 
@@ -109,7 +109,7 @@ async def test_initialize_success(
     mock_application_builder.assert_called_once()
 
     assert bot.application is not None
-    app = cast(Application, bot.application) # Cast to Application
+    app = cast(AsyncMock, bot.application)
     assert bot.youtube_api is not None
     assert bot.notification_service is not None
     assert bot.lease_refresher is not None
@@ -151,8 +151,10 @@ async def test_error_handler_sends_message_to_user_default_locale(
     bot = YouTubeUpdaterBot()
     await bot.initialize()
 
-    mock_update: Update = AsyncMock()
+    mock_update = AsyncMock(spec=Update)
+    mock_update.effective_chat = AsyncMock()
     mock_update.effective_chat.id = 123
+    assert mock_update.effective_user is not None
     mock_update.effective_user.language_code = None # Simulate no language code
 
     mock_context: ContextTypes.DEFAULT_TYPE = MagicMock(bot=AsyncMock()) # Pass bot here
@@ -161,13 +163,14 @@ async def test_error_handler_sends_message_to_user_default_locale(
     # Get the error handler from the mock application
     # The actual error handler is the second argument of add_error_handler
     assert bot.application is not None
-    app = cast(Application, bot.application)
+    app = cast(AsyncMock, bot.application)
     error_handler_func = app.add_error_handler.call_args[0][0]
 
     await error_handler_func(mock_update, mock_context)
 
     mock_translate.assert_called_once_with("errors.generic", locale=mock_settings.default_locale)
-    mock_context.bot.send_message.assert_called_once_with(
+    casted_send_message = cast(AsyncMock, mock_context.bot.send_message)
+    casted_send_message.assert_called_once_with(
         chat_id=mock_update.effective_chat.id,
         text=mock_translate.return_value,
     )
@@ -184,21 +187,24 @@ async def test_error_handler_sends_message_to_user_with_user_locale(
     await bot.initialize()
 
     mock_update: Update = AsyncMock()
+    assert mock_update.effective_chat is not None
     mock_update.effective_chat.id = 123
+    assert mock_update.effective_user is not None
     mock_update.effective_user.language_code = "fr-CA" # Simulate French Canadian locale
 
     mock_context: ContextTypes.DEFAULT_TYPE = MagicMock(bot=AsyncMock()) # Pass bot here
     mock_context.error = Exception("Test Error")
 
     assert bot.application is not None
-    app = cast(Application, bot.application)
+    app = cast(AsyncMock, bot.application)
     error_handler_func = app.add_error_handler.call_args[0][0]
 
     await error_handler_func(mock_update, mock_context)
 
     mock_normalize_locale_code.assert_called_once_with(mock_update.effective_user.language_code)
     mock_translate.assert_called_once_with("errors.generic", locale="fr-CA") # normalize_locale_code returns input
-    mock_context.bot.send_message.assert_called_once_with(
+    casted_send_message = cast(AsyncMock, mock_context.bot.send_message)
+    casted_send_message.assert_called_once_with(
         chat_id=mock_update.effective_chat.id,
         text=mock_translate.return_value,
     )
@@ -212,20 +218,21 @@ async def test_error_handler_no_effective_chat(
     bot = YouTubeUpdaterBot()
     await bot.initialize()
 
-    mock_update: Update = AsyncMock()
-    mock_update.effective_chat = None # Simulate no effective chat
+    mock_update = AsyncMock(spec=Update)
+    mock_update.effective_chat = None
 
     mock_context: ContextTypes.DEFAULT_TYPE = MagicMock(bot=AsyncMock()) # Pass bot here
     mock_context.error = Exception("Test Error")
 
     assert bot.application is not None
-    app = cast(Application, bot.application)
+    app = cast(AsyncMock, bot.application)
     error_handler_func = app.add_error_handler.call_args[0][0]
 
     await error_handler_func(mock_update, mock_context)
 
     mock_translate.assert_not_called()
-    mock_context.bot.send_message.assert_not_called()
+    casted_send_message = cast(AsyncMock, mock_context.bot.send_message)
+    casted_send_message.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_error_handler_send_message_fails(
@@ -239,15 +246,18 @@ async def test_error_handler_send_message_fails(
     await bot.initialize()
 
     mock_update: Update = AsyncMock()
+    assert mock_update.effective_chat is not None
     mock_update.effective_chat.id = 123
+    assert mock_update.effective_user is not None
     mock_update.effective_user.language_code = "es"
 
     mock_context: ContextTypes.DEFAULT_TYPE = MagicMock(bot=AsyncMock()) # Pass bot here
     mock_context.error = Exception("Test Error")
-    mock_context.bot.send_message.side_effect = Exception("Telegram API Error") # Simulate send failure
+    casted_send_message = cast(AsyncMock, mock_context.bot.send_message)
+    casted_send_message.side_effect = Exception("Telegram API Error") # Simulate send failure
 
     assert bot.application is not None
-    app = cast(Application, bot.application)
+    app = cast(AsyncMock, bot.application)
     error_handler_func = app.add_error_handler.call_args[0][0]
 
     with caplog.at_level(10): # DEBUG level
@@ -255,6 +265,6 @@ async def test_error_handler_send_message_fails(
 
     mock_normalize_locale_code.assert_called_once_with("es")
     mock_translate.assert_called_once_with("errors.generic", locale="es")
-    mock_context.bot.send_message.assert_called_once()
+    casted_send_message.assert_called_once()
     assert "Could not send error message to user: Telegram API Error" in caplog.text
 

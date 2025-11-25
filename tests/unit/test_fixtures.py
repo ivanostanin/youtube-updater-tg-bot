@@ -4,18 +4,21 @@ This module contains basic tests to ensure that all test fixtures
 are properly configured and functional.
 """
 
+from unittest.mock import MagicMock
+
 import allure
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models import User
+from src.database.models import User as DBUser  # Renamed to avoid conflict
 
 
 @allure.feature("Test Infrastructure")
 @allure.story("Fixtures")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-async def test_async_db_session_fixture(async_db_session):
+async def test_async_db_session_fixture(async_db_session: AsyncSession) -> None:
     """Test that async database session fixture works correctly.
 
     Args:
@@ -25,7 +28,7 @@ async def test_async_db_session_fixture(async_db_session):
     assert async_db_session is not None
 
     # Test basic database operation
-    user = User(
+    user = DBUser(
         telegram_id="123456789",
         username="testuser",
         first_name="Test",
@@ -35,7 +38,7 @@ async def test_async_db_session_fixture(async_db_session):
     await async_db_session.commit()
 
     # Verify user was saved
-    result = await async_db_session.execute(select(User).where(User.telegram_id == "123456789"))
+    result = await async_db_session.execute(select(DBUser).where(DBUser.telegram_id == "123456789"))
     saved_user = result.scalar_one_or_none()
 
     assert saved_user is not None
@@ -47,7 +50,7 @@ async def test_async_db_session_fixture(async_db_session):
 @allure.story("Fixtures")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_mock_telegram_bot_fixture(mock_telegram_bot):
+def test_mock_telegram_bot_fixture(mock_telegram_bot: MagicMock) -> None:
     """Test that mock Telegram bot fixture works correctly.
 
     Args:
@@ -64,7 +67,7 @@ def test_mock_telegram_bot_fixture(mock_telegram_bot):
 @allure.story("Fixtures")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_mock_telegram_update_fixture(mock_telegram_update):
+def test_mock_telegram_update_fixture(mock_telegram_update: MagicMock) -> None:
     """Test that mock Telegram update fixture works correctly.
 
     Args:
@@ -81,7 +84,7 @@ def test_mock_telegram_update_fixture(mock_telegram_update):
 @allure.story("Fixtures")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_mock_youtube_api_fixture(mock_youtube_api):
+def test_mock_youtube_api_fixture(mock_youtube_api: MagicMock) -> None:
     """Test that mock YouTube API fixture works correctly.
 
     Args:
@@ -97,7 +100,7 @@ def test_mock_youtube_api_fixture(mock_youtube_api):
 @allure.story("Fixtures")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_mock_pubsub_manager_fixture(mock_pubsub_manager):
+def test_mock_pubsub_manager_fixture(mock_pubsub_manager: MagicMock) -> None:
     """Test that mock PubSubManager fixture works correctly.
 
     Args:
@@ -117,7 +120,9 @@ def test_mock_pubsub_manager_fixture(mock_pubsub_manager):
 @allure.story("Fixtures")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_sample_data_fixtures(sample_user_data, sample_channel_data, sample_video_data):
+def test_sample_data_fixtures(
+    sample_user_data: dict, sample_channel_data: dict, sample_video_data: dict
+) -> None:
     """Test that sample data fixtures are properly structured.
 
     Args:

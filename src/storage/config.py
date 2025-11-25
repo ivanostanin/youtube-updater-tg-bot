@@ -60,7 +60,7 @@ class ObjectStorageConfig:
     def create_client(self) -> Any:
         """Create a boto3 S3 client for the configuration."""
         try:
-            import boto3  # type: ignore[import-untyped]
+            import boto3
         except ModuleNotFoundError as exc:  # pragma: no cover - defensive
             raise StorageConfigurationError("boto3 is required for storage operations") from exc
 

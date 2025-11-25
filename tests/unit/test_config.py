@@ -3,6 +3,7 @@
 import allure
 import pytest
 from pydantic import ValidationError
+from pytest import MonkeyPatch
 
 from src.utils.config import Settings
 
@@ -22,7 +23,7 @@ class TestSettingsWebhookCallbackUrl:
     @allure.label("level", "Unit")
     @allure.label("priority", "P1")
     @allure.severity(allure.severity_level.NORMAL)
-    def test_default_value(self, monkeypatch):
+    def test_default_value(self, monkeypatch: MonkeyPatch) -> None:
         """Test that default value is set correctly for development."""
         # Clear environment variable to ensure default is used
         monkeypatch.delenv("WEBHOOK_CALLBACK_URL", raising=False)
@@ -35,7 +36,7 @@ class TestSettingsWebhookCallbackUrl:
     @allure.label("level", "Unit")
     @allure.label("priority", "P0")
     @allure.severity(allure.severity_level.CRITICAL)
-    def test_load_from_environment(self, monkeypatch):
+    def test_load_from_environment(self, monkeypatch: MonkeyPatch) -> None:
         """Test loading webhook_callback_url from environment variable."""
         test_url = "https://example.com/webhook/youtube"
         monkeypatch.setenv("WEBHOOK_CALLBACK_URL", test_url)
@@ -48,7 +49,7 @@ class TestSettingsWebhookCallbackUrl:
     @allure.label("level", "Unit")
     @allure.label("priority", "P0")
     @allure.severity(allure.severity_level.CRITICAL)
-    def test_https_production_url_accepted(self, monkeypatch):
+    def test_https_production_url_accepted(self, monkeypatch: MonkeyPatch) -> None:
         """Test that HTTPS URLs for production are accepted."""
         test_url = "https://youtube-bot.nmro.cc/webhook/youtube"
         monkeypatch.setenv("WEBHOOK_CALLBACK_URL", test_url)
@@ -61,7 +62,7 @@ class TestSettingsWebhookCallbackUrl:
     @allure.label("level", "Unit")
     @allure.label("priority", "P1")
     @allure.severity(allure.severity_level.NORMAL)
-    def test_localhost_http_accepted(self, monkeypatch):
+    def test_localhost_http_accepted(self, monkeypatch: MonkeyPatch) -> None:
         """Test that localhost HTTP URLs are accepted for development."""
         test_urls = [
             "http://localhost:8000/webhook/youtube",
@@ -79,7 +80,7 @@ class TestSettingsWebhookCallbackUrl:
     @allure.label("level", "Unit")
     @allure.label("priority", "P0")
     @allure.severity(allure.severity_level.BLOCKER)
-    def test_http_production_url_rejected(self, monkeypatch):
+    def test_http_production_url_rejected(self, monkeypatch: MonkeyPatch) -> None:
         """Test that HTTP URLs for production (non-localhost) are rejected."""
         invalid_urls = [
             "http://example.com/webhook/youtube",
@@ -98,7 +99,7 @@ class TestSettingsWebhookCallbackUrl:
     @allure.label("level", "Unit")
     @allure.label("priority", "P1")
     @allure.severity(allure.severity_level.NORMAL)
-    def test_https_validation_error_message(self, monkeypatch):
+    def test_https_validation_error_message(self, monkeypatch: MonkeyPatch) -> None:
         """Test that validation error message is clear and helpful."""
         monkeypatch.setenv("WEBHOOK_CALLBACK_URL", "http://example.com/webhook/youtube")
         with pytest.raises(ValidationError) as exc_info:
@@ -113,7 +114,7 @@ class TestSettingsWebhookCallbackUrl:
     @allure.label("level", "Unit")
     @allure.label("priority", "P1")
     @allure.severity(allure.severity_level.NORMAL)
-    def test_custom_localhost_port(self, monkeypatch):
+    def test_custom_localhost_port(self, monkeypatch: MonkeyPatch) -> None:
         """Test that localhost with custom ports works."""
         test_url = "http://localhost:9000/custom/path"
         monkeypatch.setenv("WEBHOOK_CALLBACK_URL", test_url)
@@ -130,7 +131,7 @@ class TestSettingsIntegration:
     @allure.label("level", "Unit")
     @allure.label("priority", "P1")
     @allure.severity(allure.severity_level.NORMAL)
-    def test_settings_singleton_behavior(self):
+    def test_settings_singleton_behavior(self) -> None:
         """Test that settings maintains consistent values."""
         from src.utils.config import settings as settings1
         from src.utils.config import settings as settings2
@@ -143,7 +144,7 @@ class TestSettingsIntegration:
     @allure.label("level", "Unit")
     @allure.label("priority", "P0")
     @allure.severity(allure.severity_level.CRITICAL)
-    def test_all_required_fields_present(self, monkeypatch):
+    def test_all_required_fields_present(self, monkeypatch: MonkeyPatch) -> None:
         """Test that all required configuration fields are accessible."""
         # Set required environment variables
         monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test_token")
@@ -171,7 +172,7 @@ class TestSettingsLocalization:
     @allure.label("test_id", "1.14-UNIT-LOC-001")
     @allure.label("priority", "P1")
     @pytest.mark.unit
-    def test_default_locale_env_is_normalized(self, monkeypatch):
+    def test_default_locale_env_is_normalized(self, monkeypatch: MonkeyPatch) -> None:
         """DEFAULT_LOCALE should be case-insensitive and validated."""
         monkeypatch.setenv("DEFAULT_LOCALE", "RU")
         settings_obj = Settings()
@@ -182,7 +183,7 @@ class TestSettingsLocalization:
     @allure.label("test_id", "1.14-UNIT-LOC-002")
     @allure.label("priority", "P1")
     @pytest.mark.unit
-    def test_default_locale_invalid_value(self, monkeypatch):
+    def test_default_locale_invalid_value(self, monkeypatch: MonkeyPatch) -> None:
         """Unsupported locale values should raise validation errors."""
         monkeypatch.setenv("DEFAULT_LOCALE", "jp")
         with pytest.raises(ValidationError):
@@ -204,7 +205,7 @@ class TestPubSubLeaseRenewal:
     @allure.label("level", "Unit")
     @allure.label("priority", "P1")
     @allure.severity(allure.severity_level.NORMAL)
-    def test_pubsub_settings_defaults(self, monkeypatch):
+    def test_pubsub_settings_defaults(self, monkeypatch: MonkeyPatch) -> None:
         """PubSub lease renewal settings should expose sane defaults."""
         monkeypatch.delenv("PUBSUB_LEASE_RENEWAL_INTERVAL", raising=False)
         monkeypatch.delenv("PUBSUB_LEASE_RENEWAL_THRESHOLD", raising=False)
@@ -221,7 +222,7 @@ class TestPubSubLeaseRenewal:
     @allure.label("level", "Unit")
     @allure.label("priority", "P0")
     @allure.severity(allure.severity_level.CRITICAL)
-    def test_pubsub_settings_validation(self, monkeypatch):
+    def test_pubsub_settings_validation(self, monkeypatch: MonkeyPatch) -> None:
         """Negative intervals or batch sizes should be rejected."""
         monkeypatch.setenv("PUBSUB_LEASE_RENEWAL_INTERVAL", "-5")
         with pytest.raises(ValidationError):

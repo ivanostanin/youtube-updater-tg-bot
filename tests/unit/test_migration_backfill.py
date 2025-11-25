@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.unit]
 migration = import_module("src.database.migrations.versions.20250221_add_channel_lease_metadata")
 
 
-def test_backfill_uses_most_recent_subscription_webhook():
+def test_backfill_uses_most_recent_subscription_webhook() -> None:
     """The migration should copy the latest webhook_url per channel."""
     engine = sa.create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

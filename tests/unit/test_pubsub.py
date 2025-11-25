@@ -4,7 +4,8 @@ Tests cover webhook subscription, unsubscription, verification,
 error handling, and retry logic.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from collections.abc import Generator
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import allure
 import httpx
@@ -13,11 +14,18 @@ import pytest
 from src.webhooks.pubsub import PubSubManager
 
 
+@pytest.fixture
+def mock_httpx_client() -> Generator[AsyncMock]:
+    with patch("src.webhooks.pubsub.httpx.AsyncClient") as mock_client_cls:
+        mock_instance = AsyncMock()
+        mock_client_cls.return_value = mock_instance
+        yield mock_instance
+
 @allure.feature("Webhooks")
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-def test_pubsub_manager_initialization():
+def test_pubsub_manager_initialization() -> None:
     """Test PubSubManager initializes correctly with webhook URL.
 
     Args:
@@ -36,7 +44,7 @@ def test_pubsub_manager_initialization():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_get_topic_url():
+def test_get_topic_url() -> None:
     """Test topic URL generation for YouTube channel.
 
     Args:
@@ -54,7 +62,7 @@ def test_get_topic_url():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscribe_to_channel_success():
+async def test_subscribe_to_channel_success(mock_httpx_client: AsyncMock) -> None:
     """Test successful channel subscription returns True.
 
     Args:
@@ -65,13 +73,13 @@ async def test_subscribe_to_channel_success():
     # Mock successful response (204 No Content)
     mock_response = MagicMock()
     mock_response.status_code = 204
-    manager.client.post = AsyncMock(return_value=mock_response)
+    mock_httpx_client.post.return_value = mock_response
 
     result = await manager.subscribe_to_channel("UCtest123")
 
     assert result is True
-    manager.client.post.assert_called_once()
-    call_args = manager.client.post.call_args
+    mock_httpx_client.post.assert_called_once()
+    call_args = mock_httpx_client.post.call_args
     assert call_args[0][0] == manager.hub_url
     assert call_args[1]["data"]["hub.mode"] == "subscribe"
     assert "UCtest123" in call_args[1]["data"]["hub.topic"]
@@ -81,7 +89,7 @@ async def test_subscribe_to_channel_success():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscribe_to_channel_already_subscribed():
+async def test_subscribe_to_channel_already_subscribed(mock_httpx_client: AsyncMock) -> None:
     """Test subscribing to already subscribed channel returns True.
 
     Args:
@@ -92,7 +100,7 @@ async def test_subscribe_to_channel_already_subscribed():
     # Mock 409 Conflict response (already subscribed)
     mock_response = MagicMock()
     mock_response.status_code = 409
-    manager.client.post = AsyncMock(return_value=mock_response)
+    mock_httpx_client.post.return_value = mock_response
 
     result = await manager.subscribe_to_channel("UCtest123")
 
@@ -103,7 +111,7 @@ async def test_subscribe_to_channel_already_subscribed():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_subscribe_to_channel_failure():
+async def test_subscribe_to_channel_failure(mock_httpx_client: AsyncMock) -> None:
     """Test failed channel subscription returns False.
 
     Args:
@@ -115,7 +123,7 @@ async def test_subscribe_to_channel_failure():
     mock_response = MagicMock()
     mock_response.status_code = 400
     mock_response.text = "Bad Request"
-    manager.client.post = AsyncMock(return_value=mock_response)
+    mock_httpx_client.post.return_value = mock_response
 
     result = await manager.subscribe_to_channel("UCtest123")
 
@@ -126,7 +134,7 @@ async def test_subscribe_to_channel_failure():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_subscribe_to_channel_timeout():
+async def test_subscribe_to_channel_timeout(mock_httpx_client: AsyncMock) -> None:
     """Test subscription timeout is handled gracefully.
 
     Args:
@@ -135,7 +143,7 @@ async def test_subscribe_to_channel_timeout():
     manager = PubSubManager("https://example.com/webhook")
 
     # Mock timeout exception
-    manager.client.post = AsyncMock(side_effect=httpx.TimeoutException("Request timeout"))
+    mock_httpx_client.post.side_effect = httpx.TimeoutException("Request timeout")
 
     result = await manager.subscribe_to_channel("UCtest123")
 
@@ -147,7 +155,7 @@ async def test_subscribe_to_channel_timeout():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_subscribe_to_channel_http_error():
+async def test_subscribe_to_channel_http_error(mock_httpx_client: AsyncMock) -> None:
     """Test subscription HTTP error is handled gracefully.
 
     Args:
@@ -156,11 +164,9 @@ async def test_subscribe_to_channel_http_error():
     manager = PubSubManager("https://example.com/webhook")
 
     # Mock HTTP error
-    manager.client.post = AsyncMock(
-        side_effect=httpx.HTTPStatusError(
+    mock_httpx_client.post.side_effect = httpx.HTTPStatusError(
             "Server Error", request=MagicMock(), response=MagicMock(status_code=500)
         )
-    )
 
     result = await manager.subscribe_to_channel("UCtest123")
 
@@ -171,7 +177,7 @@ async def test_subscribe_to_channel_http_error():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_subscribe_to_channel_generic_exception():
+async def test_subscribe_to_channel_generic_exception(mock_httpx_client: AsyncMock) -> None:
     """Test subscription handles generic exceptions gracefully.
 
     Args:
@@ -180,7 +186,7 @@ async def test_subscribe_to_channel_generic_exception():
     manager = PubSubManager("https://example.com/webhook")
 
     # Mock generic exception
-    manager.client.post = AsyncMock(side_effect=Exception("Unexpected error"))
+    mock_httpx_client.post.side_effect = Exception("Unexpected error")
 
     result = await manager.subscribe_to_channel("UCtest123")
 
@@ -191,22 +197,22 @@ async def test_subscribe_to_channel_generic_exception():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_subscribe_short_circuits_for_local_callback():
+async def test_subscribe_short_circuits_for_local_callback(mock_httpx_client: AsyncMock) -> None:
     """Local callbacks should skip remote PubSub calls."""
     manager = PubSubManager("http://localhost:8000/webhook")
-    manager.client.post = AsyncMock()
+    mock_httpx_client.post = AsyncMock()
 
     result = await manager.subscribe_to_channel("UCtest123")
 
     assert result is True
-    manager.client.post.assert_not_called()
+    mock_httpx_client.post.assert_not_called()
 
 
 @allure.feature("Webhooks")
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_unsubscribe_from_channel_success():
+async def test_unsubscribe_from_channel_success(mock_httpx_client: AsyncMock) -> None:
     """Test successful channel unsubscription returns True.
 
     Args:
@@ -217,13 +223,13 @@ async def test_unsubscribe_from_channel_success():
     # Mock successful response (204 No Content)
     mock_response = MagicMock()
     mock_response.status_code = 204
-    manager.client.post = AsyncMock(return_value=mock_response)
+    mock_httpx_client.post.return_value = mock_response
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
     assert result is True
-    manager.client.post.assert_called_once()
-    call_args = manager.client.post.call_args
+    mock_httpx_client.post.assert_called_once()
+    call_args = mock_httpx_client.post.call_args
     assert call_args[1]["data"]["hub.mode"] == "unsubscribe"
 
 
@@ -231,7 +237,7 @@ async def test_unsubscribe_from_channel_success():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_unsubscribe_from_channel_not_found():
+async def test_unsubscribe_from_channel_not_found(mock_httpx_client: AsyncMock) -> None:
     """Test unsubscribing from non-existent subscription returns True.
 
     Args:
@@ -242,7 +248,7 @@ async def test_unsubscribe_from_channel_not_found():
     # Mock 404 Not Found response
     mock_response = MagicMock()
     mock_response.status_code = 404
-    manager.client.post = AsyncMock(return_value=mock_response)
+    mock_httpx_client.post.return_value = mock_response
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
@@ -254,7 +260,7 @@ async def test_unsubscribe_from_channel_not_found():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-async def test_unsubscribe_from_channel_failure():
+async def test_unsubscribe_from_channel_failure(mock_httpx_client: AsyncMock) -> None:
     """Test failed channel unsubscription returns False.
 
     Args:
@@ -266,7 +272,7 @@ async def test_unsubscribe_from_channel_failure():
     mock_response = MagicMock()
     mock_response.status_code = 500
     mock_response.text = "Server Error"
-    manager.client.post = AsyncMock(return_value=mock_response)
+    mock_httpx_client.post.return_value = mock_response
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
@@ -277,27 +283,27 @@ async def test_unsubscribe_from_channel_failure():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_unsubscribe_short_circuits_for_local_callback():
+async def test_unsubscribe_short_circuits_for_local_callback(mock_httpx_client: AsyncMock) -> None:
     """Local callbacks should skip remote unsubscribe calls."""
     manager = PubSubManager("http://127.0.0.1:9000/webhook")
-    manager.client.post = AsyncMock()
+    mock_httpx_client.post = AsyncMock()
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
     assert result is True
-    manager.client.post.assert_not_called()
+    mock_httpx_client.post.assert_not_called()
 
 
 @allure.feature("Webhooks")
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_unsubscribe_conflict_treated_as_success():
+async def test_unsubscribe_conflict_treated_as_success(mock_httpx_client: AsyncMock) -> None:
     """HTTP 409 conflicts are treated as success to avoid noisy failures."""
     manager = PubSubManager("https://example.com/webhook")
     mock_response = MagicMock()
     mock_response.status_code = 409
-    manager.client.post = AsyncMock(return_value=mock_response)
+    mock_httpx_client.post.return_value = mock_response
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
@@ -308,7 +314,7 @@ async def test_unsubscribe_conflict_treated_as_success():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_unsubscribe_from_channel_timeout():
+async def test_unsubscribe_from_channel_timeout(mock_httpx_client: AsyncMock) -> None:
     """Test unsubscription timeout is handled gracefully.
 
     Args:
@@ -317,7 +323,7 @@ async def test_unsubscribe_from_channel_timeout():
     manager = PubSubManager("https://example.com/webhook")
 
     # Mock timeout exception
-    manager.client.post = AsyncMock(side_effect=httpx.TimeoutException("Request timeout"))
+    mock_httpx_client.post.side_effect = httpx.TimeoutException("Request timeout")
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
@@ -329,7 +335,7 @@ async def test_unsubscribe_from_channel_timeout():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_unsubscribe_from_channel_http_error():
+async def test_unsubscribe_from_channel_http_error(mock_httpx_client: AsyncMock) -> None:
     """Test unsubscription HTTP error is handled gracefully.
 
     Args:
@@ -338,11 +344,9 @@ async def test_unsubscribe_from_channel_http_error():
     manager = PubSubManager("https://example.com/webhook")
 
     # Mock HTTP error
-    manager.client.post = AsyncMock(
-        side_effect=httpx.HTTPStatusError(
+    mock_httpx_client.post.side_effect = httpx.HTTPStatusError(
             "Server Error", request=MagicMock(), response=MagicMock(status_code=503)
         )
-    )
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
@@ -353,7 +357,7 @@ async def test_unsubscribe_from_channel_http_error():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_verify_subscription_success():
+async def test_verify_subscription_success(mock_httpx_client: AsyncMock) -> None:
     """Test verifying subscription returns feed content.
 
     Args:
@@ -365,20 +369,20 @@ async def test_verify_subscription_success():
     mock_response = MagicMock()
     mock_response.status_code = 200
     mock_response.text = '<?xml version="1.0"?><feed>...</feed>'
-    manager.client.get = AsyncMock(return_value=mock_response)
+    mock_httpx_client.get.return_value = mock_response
 
     result = await manager.verify_subscription("UCtest123")
 
     assert result is not None
     assert "<feed>" in result
-    manager.client.get.assert_called_once()
+    mock_httpx_client.get.assert_called_once()
 
 
 @allure.feature("Webhooks")
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_verify_subscription_not_found():
+async def test_verify_subscription_not_found(mock_httpx_client: AsyncMock) -> None:
     """Test verifying non-existent subscription returns None.
 
     Args:
@@ -389,7 +393,7 @@ async def test_verify_subscription_not_found():
     # Mock 404 response
     mock_response = MagicMock()
     mock_response.status_code = 404
-    manager.client.get = AsyncMock(return_value=mock_response)
+    mock_httpx_client.get.return_value = mock_response
 
     result = await manager.verify_subscription("UCtest123")
 
@@ -400,7 +404,7 @@ async def test_verify_subscription_not_found():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_verify_subscription_exception():
+async def test_verify_subscription_exception(mock_httpx_client: AsyncMock) -> None:
     """Test verifying subscription handles exceptions gracefully.
 
     Args:
@@ -409,7 +413,7 @@ async def test_verify_subscription_exception():
     manager = PubSubManager("https://example.com/webhook")
 
     # Mock exception
-    manager.client.get = AsyncMock(side_effect=Exception("Network error"))
+    mock_httpx_client.get.side_effect = Exception("Network error")
 
     result = await manager.verify_subscription("UCtest123")
 
@@ -420,15 +424,15 @@ async def test_verify_subscription_exception():
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_close_client():
+async def test_close_client(mock_httpx_client: AsyncMock) -> None: # mock_httpx_client is manager.client
     """Test closing HTTP client works correctly.
 
     Args:
         None
     """
     manager = PubSubManager("https://example.com/webhook")
-    manager.client.aclose = AsyncMock()
+    mock_httpx_client.aclose = AsyncMock()
 
     await manager.close()
 
-    manager.client.aclose.assert_called_once()
+    mock_httpx_client.aclose.assert_called_once()

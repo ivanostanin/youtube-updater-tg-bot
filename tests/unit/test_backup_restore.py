@@ -8,9 +8,11 @@ import io
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import allure
 import pytest
+from pytest import MonkeyPatch
 
 from src.storage import startup
 from src.storage.backup import perform_backup
@@ -28,7 +30,7 @@ FEATURE = "Backup-Restore"
 STORY = "Oracle Cloud Backup Restore"
 
 
-def _load_restore_cli_module():
+def _load_restore_cli_module() -> Any:
     spec = importlib.util.spec_from_file_location(
         "backup_restore_restore_cli",
         PROJECT_ROOT / "scripts" / "restore-db.py",
@@ -37,6 +39,7 @@ def _load_restore_cli_module():
     sys_path_entry = str(scripts_dir)
     if sys_path_entry not in sys.path:
         sys.path.insert(0, sys_path_entry)
+    assert spec is not None, "Module spec should not be None"
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -49,10 +52,10 @@ class FakeBackupClient:
     def __init__(
         self,
         *,
-        objects: list[dict] | None = None,
+        objects: list[dict[str, Any]] | None = None,
         body: bytes | None = None,
-        metadata: dict | None = None,
-    ):
+        metadata: dict[str, str] | None = None,
+    ) -> None:
         self.objects = objects or []
         self.body = body or b""
         self.metadata = metadata or {}
@@ -61,22 +64,22 @@ class FakeBackupClient:
         self.get_calls: list[dict] = []
 
     # Backup helpers -----------------------------------------------------
-    def put_object(self, **kwargs):
+    def put_object(self, **kwargs: Any) -> None:
         self.put_calls.append(kwargs)
 
     # Restore helpers ----------------------------------------------------
-    def list_objects_v2(self, **kwargs):
+    def list_objects_v2(self, **kwargs: Any) -> dict[str, Any]:
         self.list_calls.append(kwargs)
         if not self.objects:
             return {"KeyCount": 0}
         return {"KeyCount": len(self.objects), "Contents": self.objects, "IsTruncated": False}
 
-    def get_object(self, **kwargs):
+    def get_object(self, **kwargs: Any) -> dict[str, Any]:
         self.get_calls.append(kwargs)
         return {"Body": io.BytesIO(self.body), "Metadata": self.metadata}
 
 
-def _make_config(bucket: str = "test-bucket", **overrides) -> ObjectStorageConfig:
+def _make_config(bucket: str = "test-bucket", **overrides: Any) -> ObjectStorageConfig:
     base = {
         "endpoint_url": "https://objectstorage.example.com",
         "namespace": "mynamespace",
@@ -100,7 +103,7 @@ def _make_config(bucket: str = "test-bucket", **overrides) -> ObjectStorageConfi
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_build_storage_config_from_environment(monkeypatch):
+def test_build_storage_config_from_environment(monkeypatch: MonkeyPatch) -> None:
     """Ensure environment variables populate configuration fields."""
     monkeypatch.setenv("OBJECT_STORAGE_BUCKET", "demo-bucket")
     monkeypatch.setenv("OBJECT_STORAGE_REGION", "eu-frankfurt-1")
@@ -122,7 +125,7 @@ def test_build_storage_config_from_environment(monkeypatch):
 @allure.label("priority", "P0")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-def test_perform_backup_uploads_with_metadata(tmp_path):
+def test_perform_backup_uploads_with_metadata(tmp_path: Path) -> None:
     """Verify uploads contain checksum metadata and use namespace-prefixed bucket paths."""
     db_path = tmp_path / "bot.db"
     db_path.write_text("database")
@@ -148,7 +151,7 @@ def test_perform_backup_uploads_with_metadata(tmp_path):
 @allure.label("priority", "P0")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-def test_restore_latest_backup_success(tmp_path):
+def test_restore_latest_backup_success(tmp_path: Path) -> None:
     """Restore downloads the latest backup and writes contents to disk."""
     config = _make_config()
     timestamp = datetime(2025, 1, 1, 1, 0, tzinfo=UTC)
@@ -174,7 +177,7 @@ def test_restore_latest_backup_success(tmp_path):
 @allure.label("priority", "P0")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_restore_latest_backup_missing_checksum(tmp_path):
+def test_restore_latest_backup_missing_checksum(tmp_path: Path) -> None:
     """Missing checksum metadata should raise an error."""
     config = _make_config()
     client = FakeBackupClient(
@@ -196,7 +199,7 @@ def test_restore_latest_backup_missing_checksum(tmp_path):
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_restore_latest_backup_not_found(tmp_path):
+def test_restore_latest_backup_not_found(tmp_path: Path) -> None:
     """No available backups should raise BackupNotFoundError."""
     config = _make_config()
     client = FakeBackupClient(objects=[])
@@ -212,7 +215,7 @@ def test_restore_latest_backup_not_found(tmp_path):
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_ensure_database_backup_skips_when_present(monkeypatch, tmp_path):
+def test_ensure_database_backup_skips_when_present(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """Auto-restore should not run when database already exists."""
     db_path = tmp_path / "bot.db"
     db_path.write_text("existing")
@@ -220,7 +223,7 @@ def test_ensure_database_backup_skips_when_present(monkeypatch, tmp_path):
     monkeypatch.setattr(startup, "_resolve_database_path", lambda _: db_path)
     build_called = False
 
-    def fake_build():
+    def fake_build() -> ObjectStorageConfig:
         nonlocal build_called
         build_called = True
         return _make_config()
@@ -239,7 +242,7 @@ def test_ensure_database_backup_skips_when_present(monkeypatch, tmp_path):
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_ensure_database_backup_handles_missing_configuration(monkeypatch, tmp_path):
+def test_ensure_database_backup_handles_missing_configuration(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """Missing configuration should log and continue without raising."""
     db_path = tmp_path / "bot.db"
 
@@ -262,24 +265,24 @@ def test_ensure_database_backup_handles_missing_configuration(monkeypatch, tmp_p
 @allure.label("priority", "P0")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-def test_ensure_database_backup_restores_latest_backup(monkeypatch, tmp_path):
+def test_ensure_database_backup_restores_latest_backup(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """When database missing, ensure restore is invoked and file created."""
     db_path = tmp_path / "bot.db"
 
     monkeypatch.setattr(startup, "_resolve_database_path", lambda _: db_path)
     monkeypatch.setattr(startup, "build_storage_config", lambda **_: _make_config())
 
-    restored = {"called": 0}
+    restored_calls: list[int] = []
 
-    def fake_restore(config, destination):
-        restored["called"] += 1
+    def fake_restore_new(config: ObjectStorageConfig, destination: Path) -> Path:
+        restored_calls.append(1)
         destination.write_text("restored")
         return destination
 
-    monkeypatch.setattr(startup, "restore_latest_backup", fake_restore)
+    monkeypatch.setattr(startup, "restore_latest_backup", fake_restore_new)
     startup.ensure_database_backup("sqlite+aiosqlite:///ignored")
 
-    assert restored["called"] == 1
+    assert len(restored_calls) == 1
     assert db_path.read_text() == "restored"
 
 
@@ -290,14 +293,14 @@ def test_ensure_database_backup_restores_latest_backup(monkeypatch, tmp_path):
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_ensure_database_backup_warns_on_missing_backups(monkeypatch, tmp_path):
+def test_ensure_database_backup_warns_on_missing_backups(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """BackupNotFoundError should be swallowed to allow fresh database."""
     db_path = tmp_path / "bot.db"
 
     monkeypatch.setattr(startup, "_resolve_database_path", lambda _: db_path)
     monkeypatch.setattr(startup, "build_storage_config", lambda **_: _make_config())
 
-    def fake_restore(config, destination):
+    def fake_restore(config: ObjectStorageConfig, destination: Path) -> Path:
         raise BackupNotFoundError("no backups")
 
     monkeypatch.setattr(startup, "restore_latest_backup", fake_restore)
@@ -313,7 +316,7 @@ def test_ensure_database_backup_warns_on_missing_backups(monkeypatch, tmp_path):
 @allure.label("priority", "P0")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-def test_restore_cli_skips_when_unconfigured(monkeypatch, tmp_path, caplog):
+def test_restore_cli_skips_when_unconfigured(monkeypatch: MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """CLI should exit gracefully when object storage is not configured."""
     module = _load_restore_cli_module()
     destination = tmp_path / "bot.db"
@@ -355,7 +358,7 @@ def test_restore_cli_skips_when_unconfigured(monkeypatch, tmp_path, caplog):
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_restore_cli_skips_existing_without_force(monkeypatch, tmp_path):
+def test_restore_cli_skips_existing_without_force(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """Existing destination should bypass restore unless --force is provided."""
     module = _load_restore_cli_module()
     destination = tmp_path / "bot.db"
@@ -394,7 +397,7 @@ def test_restore_cli_skips_existing_without_force(monkeypatch, tmp_path):
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_restore_cli_force_overwrites(monkeypatch, tmp_path):
+def test_restore_cli_force_overwrites(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     """--force should allow restoring even when destination exists."""
     module = _load_restore_cli_module()
     destination = tmp_path / "bot.db"
@@ -417,7 +420,7 @@ def test_restore_cli_force_overwrites(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "parse_args", lambda: args)
     monkeypatch.setattr(module, "build_storage_config", lambda *_, **__: _make_config())
 
-    def fake_restore(config, dest):
+    def fake_restore(config: ObjectStorageConfig, dest: Path) -> Path:
         dest.write_text("restored")
         return dest
 
@@ -433,7 +436,7 @@ def test_restore_cli_force_overwrites(monkeypatch, tmp_path):
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_build_storage_config_requirement_toggle(monkeypatch):
+def test_build_storage_config_requirement_toggle(monkeypatch: MonkeyPatch) -> None:
     """Require bucket when requested and allow partial config otherwise."""
     monkeypatch.delenv("OBJECT_STORAGE_BUCKET", raising=False)
     with pytest.raises(StorageConfigurationError):

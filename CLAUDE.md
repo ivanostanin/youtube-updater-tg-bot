@@ -69,7 +69,7 @@ ruff check --fix src/ tests/
 ruff format src/ tests/
 
 # Type checking
-mypy src/
+mypy src/ tests/
 
 # Pre-commit hooks (after installing dev dependencies)
 pre-commit install

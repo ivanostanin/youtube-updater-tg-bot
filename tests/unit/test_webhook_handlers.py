@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import cast
 from unittest.mock import MagicMock
 
 import allure
@@ -47,7 +48,7 @@ def _metric_value(counter, labels: dict[str, str]) -> float:
     for metric in counter.collect():
         for sample in metric.samples:
             if all(sample.labels.get(key) == value for key, value in labels.items()):
-                return sample.value
+                return cast(float, sample.value)
     return 0.0
 
 
@@ -62,6 +63,8 @@ async def test_webhook_handler_stores_lease_metadata(async_db_engine, monkeypatc
         expire_on_commit=False,
     )
     monkeypatch.setattr("src.webhooks.handlers.AsyncSessionLocal", session_maker)
+
+    channel: YouTubeChannel | None
 
     async with session_maker() as session:
         channel = YouTubeChannel(
@@ -145,12 +148,12 @@ async def test_webhook_handler_clears_metadata_on_unsubscribe(async_db_engine, m
     assert response.body == b"bye"
 
     async with session_maker() as session:
-        channel = await session.get(YouTubeChannel, 1)
-        assert channel is not None
-        assert channel.webhook_callback_url is None
-        assert channel.webhook_lease_seconds is None
-        assert channel.webhook_lease_expires_at is None
-        assert channel.webhook_last_verified_at is None
+        channel_from_db_obj = await session.get(YouTubeChannel, 1)
+        assert channel_from_db_obj is not None
+        assert channel_from_db_obj.webhook_callback_url is None
+        assert channel_from_db_obj.webhook_lease_seconds is None
+        assert channel_from_db_obj.webhook_lease_expires_at is None
+        assert channel_from_db_obj.webhook_last_verified_at is None
 
     assert (
         _metric_value(
