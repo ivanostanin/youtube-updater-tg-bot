@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import select
 from telegram import CallbackQuery, InlineKeyboardMarkup
 from telegram.error import TelegramError
+from telegramify_markdown import markdownify
 
 from src.bot.handlers import BotHandlers, CommandExecutionContext
 from src.database.models import ChannelAdminLink, Chat, Subscription, User, YouTubeChannel
@@ -85,7 +86,7 @@ async def test_help_command(
     assert "/subscribe" in call_args
     assert "/list" in call_args
     assert "/unsubscribe" in call_args
-    assert "youtube.com/@username" in call_args
+    assert markdownify("youtube.com/@username") in call_args
 
 
 @allure.feature("Bot Handlers")
@@ -441,7 +442,7 @@ async def test_handle_unsubscribe_callback_cancel(
 
     # Verify callback was answered and message edited
     query.answer.assert_called_once()
-    query.edit_message_text.assert_called_once_with("Cancelled.", parse_mode="MarkdownV2")
+    query.edit_message_text.assert_called_once_with(markdownify("Cancelled."))
 
 
 @allure.feature("Bot Handlers")
@@ -1087,7 +1088,7 @@ async def test_channel_unlink_command_requires_channel_context(
 
     mock_telegram_update.message.reply_text.assert_called_once()
     reply_text = mock_telegram_update.message.reply_text.call_args.args[0]
-    assert "/channel_select" in reply_text
+    assert markdownify("/channel_select").strip() in reply_text
 
 
 @allure.feature("Bot Handlers")

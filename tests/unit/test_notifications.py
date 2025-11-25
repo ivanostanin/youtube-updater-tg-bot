@@ -3,6 +3,8 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from telegramify_markdown import markdownify
+
 from src.bot.notifications import NotificationService
 
 
@@ -35,6 +37,6 @@ async def test_format_video_message_includes_translated_labels():
         locale="en",
         request_id="notif-1",
     )
-    assert "🎬 **New Video Alert!**" in message
-    assert "📺 **Channel:** Test Channel" in message
+    assert markdownify("🎬 **New Video Alert!**") in message
+    assert markdownify("📺 **Channel:** Test Channel") in message
     assert "💬" in message  # group prompt

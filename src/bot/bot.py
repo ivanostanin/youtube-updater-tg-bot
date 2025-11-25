@@ -1,11 +1,12 @@
 import logging
 from asyncio.exceptions import CancelledError
 
-from telegram.ext import Application, ContextTypes
+from telegram.constants import ParseMode
+from telegram.ext import Application, ContextTypes, Defaults
 
 from ..database.database import AsyncSessionLocal, init_db
 from ..utils.config import settings
-from ..utils.i18n import translate
+from ..utils.i18n import normalize_locale_code, translate
 from ..utils.logging import setup_logging
 from ..webhooks.lease_refresher import WebhookLeaseRefresher
 from ..webhooks.synchronizer import WebhookSubscriptionSynchronizer
@@ -45,7 +46,13 @@ class YouTubeUpdaterBot:
             logger.info("YouTube API client created")
 
             # Create Telegram bot application
-            self.application = Application.builder().token(settings.telegram_bot_token).build()
+            defaults = Defaults(parse_mode=ParseMode.MARKDOWN_V2)
+            self.application = (
+                Application.builder()
+                .token(settings.telegram_bot_token)
+                .defaults(defaults)
+                .build()
+            )
             if self.application is None:
                 raise RuntimeError("Failed to create Telegram application")
 
@@ -61,11 +68,20 @@ class YouTubeUpdaterBot:
 
                 # Try to send error message to user if possible
                 if hasattr(update, "effective_chat") and update.effective_chat:
+                    locale = settings.default_locale
+                    if hasattr(update, "effective_user") and hasattr(
+                        update.effective_user, "language_code"
+                    ):
+                        language_code = getattr(update.effective_user, "language_code", None)
+                        if language_code:
+                            normalized = normalize_locale_code(language_code)
+                            if normalized:
+                                locale = normalized
+
                     try:
                         await context.bot.send_message(
                             chat_id=update.effective_chat.id,
-                            text=translate("errors.generic", locale="en"),
-                            parse_mode="MarkdownV2",
+                            text=translate("errors.generic", locale=locale),
                         )
                     except Exception as e:
                         logger.error(f"Could not send error message to user: {e}")

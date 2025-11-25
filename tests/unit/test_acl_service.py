@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import allure
 import pytest
 from telegram.error import TelegramError
+from telegramify_markdown import markdownify
 
 from src.services import ACLService
 
@@ -81,7 +82,9 @@ async def test_require_admin_reports_denial_message():
     )
 
     assert allowed is False
-    assert messages == ["Only chat administrators can manage subscriptions here."]
+    assert messages == [
+        markdownify("Only chat administrators can manage subscriptions here.")
+    ]
 
 
 @allure.feature("Services")

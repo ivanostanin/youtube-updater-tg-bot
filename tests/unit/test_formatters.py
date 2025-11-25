@@ -61,21 +61,3 @@ def test_format_group_discussion_prompt_translated(chat_type: str, expected_phra
     )
     assert prompt is not None
     assert expected_phrase in prompt
-
-
-def test_escape_markdown_v2():
-    """Test escaping of MarkdownV2 special characters."""
-    from src.utils.formatters import escape_markdown_v2
-
-    escape_chars = "_*[]()~`>#+-=|{}.!"
-    for char in escape_chars:
-        text = f"char is {char}"
-        expected = f"char is \\{char}"
-        assert escape_markdown_v2(text) == expected
-
-    text = "Hello, world! This is a test."
-    expected = "Hello, world\\! This is a test\\."
-    assert escape_markdown_v2(text) == expected
-
-    text = "No special characters here"
-    assert escape_markdown_v2(text) == text

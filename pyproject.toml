@@ -48,6 +48,7 @@ dependencies = [
     "boto3>=1.40.74",
     "pyyaml>=6.0.3",
     "prometheus-client>=0.23.1",
+    "telegramify-markdown>=0.5.1",
 ]
 
 [project.optional-dependencies]
@@ -128,6 +129,7 @@ module = [
     "feedparser",
     "telegram.*",
     "allure_pytest",
+    "telegramify_markdown",
 ]
 ignore_missing_imports = true
 

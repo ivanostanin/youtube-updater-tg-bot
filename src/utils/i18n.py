@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import resources
-from typing import Any
+from typing import Any, cast
 
 import yaml
+from telegramify_markdown import markdownify
 
 from .locale_codes import SUPPORTED_LOCALES, normalize_locale_code
 from .logging import get_logger, log_context
@@ -50,6 +51,7 @@ class I18n:
         *,
         locale: str | None = None,
         request_id: str | None = None,
+        should_markdownify: bool = True,
         **params: Any,
     ) -> str:
         """Translate a key for the desired locale with formatting parameters."""
@@ -63,7 +65,10 @@ class I18n:
             return key
 
         try:
-            return template.format_map(_SafeFormatDict(params))
+            formatted_text = template.format_map(_SafeFormatDict(params))
+            if should_markdownify:
+                return cast(str, markdownify(formatted_text))
+            return formatted_text
         except Exception as exc:  # pragma: no cover - defensive formatting guard
             self._logger.error(
                 "Failed to render translation template",
@@ -138,4 +143,4 @@ class I18n:
 i18n = I18n()
 translate = i18n.translate
 normalize_locale = I18n.normalize
-__all__ = ["i18n", "translate", "normalize_locale", "SUPPORTED_LOCALES"]
+__all__ = ["i18n", "translate", "normalize_locale", "normalize_locale_code", "SUPPORTED_LOCALES"]
