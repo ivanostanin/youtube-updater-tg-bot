@@ -147,6 +147,9 @@ async def test_error_handler_sends_message_to_user_default_locale(
     mock_application_builder: Any,
     mock_translate: Any,
     mock_normalize_locale_code: Any,
+    mock_init_db: Any,
+    mock_webhook_synchronizer: Any,
+    mock_webhook_lease_refresher: Any,
 ) -> None:
     bot = YouTubeUpdaterBot()
     await bot.initialize()
@@ -182,6 +185,9 @@ async def test_error_handler_sends_message_to_user_with_user_locale(
     mock_application_builder: Any,
     mock_translate: Any,
     mock_normalize_locale_code: Any,
+    mock_init_db: Any,
+    mock_webhook_synchronizer: Any,
+    mock_webhook_lease_refresher: Any,
 ) -> None:
     bot = YouTubeUpdaterBot()
     await bot.initialize()
@@ -214,6 +220,9 @@ async def test_error_handler_no_effective_chat(
     mock_settings: Any,
     mock_application_builder: Any,
     mock_translate: Any,
+    mock_init_db: Any,
+    mock_webhook_synchronizer: Any,
+    mock_webhook_lease_refresher: Any,
 ) -> None:
     bot = YouTubeUpdaterBot()
     await bot.initialize()
@@ -241,6 +250,9 @@ async def test_error_handler_send_message_fails(
     mock_translate: Any,
     caplog: Any, # To capture logs
     mock_normalize_locale_code: Any,
+    mock_init_db: Any,
+    mock_webhook_synchronizer: Any,
+    mock_webhook_lease_refresher: Any,
 ) -> None:
     bot = YouTubeUpdaterBot()
     await bot.initialize()
@@ -267,4 +279,3 @@ async def test_error_handler_send_message_fails(
     mock_translate.assert_called_once_with("errors.generic", locale="es")
     casted_send_message.assert_called_once()
     assert "Could not send error message to user: Telegram API Error" in caplog.text
-
