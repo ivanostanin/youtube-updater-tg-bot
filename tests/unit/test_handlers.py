@@ -441,7 +441,7 @@ async def test_handle_unsubscribe_callback_cancel(
 
     # Verify callback was answered and message edited
     query.answer.assert_called_once()
-    query.edit_message_text.assert_called_once_with(markdownify("Cancelled."))
+    query.edit_message_text.assert_called_once_with(markdownify("Cancelled.").strip())
 
 
 @allure.feature("Bot Handlers")

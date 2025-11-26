@@ -67,7 +67,7 @@ class I18n:
         try:
             formatted_text = template.format_map(_SafeFormatDict(params))
             if should_markdownify:
-                return cast(str, markdownify(formatted_text))
+                return cast(str, markdownify(formatted_text)).strip()
             return formatted_text
         except Exception as exc:  # pragma: no cover - defensive formatting guard
             self._logger.error(

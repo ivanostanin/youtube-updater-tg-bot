@@ -83,7 +83,7 @@ async def test_require_admin_reports_denial_message():
 
     assert allowed is False
     assert messages == [
-        markdownify("Only chat administrators can manage subscriptions here.")
+        markdownify("Only chat administrators can manage subscriptions here.").strip()
     ]
 
 
