@@ -136,7 +136,7 @@ jobs:
           fi
 
       - name: Upload Pages artifact
-        if: ${{ github.event_name != 'pull_request' && hashFiles('publish/allure-latest/**') != '' }}
+        if: ${{ always() && github.event_name != 'pull_request' && hashFiles('publish/allure-latest/**') != '' }}
         uses: actions/upload-pages-artifact@v3
         with:
           path: publish
@@ -160,7 +160,7 @@ jobs:
 
   test-report-deploy:
     name: Deploy Allure report to GitHub Pages
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
     needs: tests
     runs-on: ubuntu-latest
     permissions:
