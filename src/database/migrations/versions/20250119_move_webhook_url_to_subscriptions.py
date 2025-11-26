@@ -64,8 +64,13 @@ def _copy_subscription_webhooks_to_channels(connection: Connection) -> None:
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("subscriptions") as batch_op:
-        batch_op.add_column(sa.Column("webhook_url", sa.String(length=512), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("subscriptions")]
+
+    if "webhook_url" not in columns:
+        with op.batch_alter_table("subscriptions") as batch_op:
+            batch_op.add_column(sa.Column("webhook_url", sa.String(length=512), nullable=True))
 
     connection = op.get_bind()
     _copy_channel_webhooks_to_subscriptions(connection)
@@ -75,11 +80,18 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("youtube_channels") as batch_op:
-        batch_op.add_column(sa.Column("webhook_url", sa.String(length=512), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    yt_columns = [c["name"] for c in inspector.get_columns("youtube_channels")]
+    sub_columns = [c["name"] for c in inspector.get_columns("subscriptions")]
+
+    if "webhook_url" not in yt_columns:
+        with op.batch_alter_table("youtube_channels") as batch_op:
+            batch_op.add_column(sa.Column("webhook_url", sa.String(length=512), nullable=True))
 
     connection = op.get_bind()
     _copy_subscription_webhooks_to_channels(connection)
 
-    with op.batch_alter_table("subscriptions") as batch_op:
-        batch_op.drop_column("webhook_url")
+    if "webhook_url" in sub_columns:
+        with op.batch_alter_table("subscriptions") as batch_op:
+            batch_op.drop_column("webhook_url")

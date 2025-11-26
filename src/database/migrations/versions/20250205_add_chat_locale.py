@@ -14,10 +14,20 @@ depends_on = None
 
 
 def upgrade() -> None:
-    with op.batch_alter_table("chats") as batch_op:
-        batch_op.add_column(sa.Column("preferred_locale", sa.String(length=5), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("chats")]
+
+    if "preferred_locale" not in columns:
+        with op.batch_alter_table("chats") as batch_op:
+            batch_op.add_column(sa.Column("preferred_locale", sa.String(length=5), nullable=True))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("chats") as batch_op:
-        batch_op.drop_column("preferred_locale")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("chats")]
+
+    if "preferred_locale" in columns:
+        with op.batch_alter_table("chats") as batch_op:
+            batch_op.drop_column("preferred_locale")

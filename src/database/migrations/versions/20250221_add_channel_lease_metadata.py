@@ -61,23 +61,41 @@ def _backfill_callback_urls(connection: Connection) -> None:
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("youtube_channels")]
+
     with op.batch_alter_table("youtube_channels") as batch_op:
-        batch_op.add_column(sa.Column("webhook_callback_url", sa.String(length=512), nullable=True))
-        batch_op.add_column(sa.Column("webhook_lease_seconds", sa.Integer(), nullable=True))
-        batch_op.add_column(
-            sa.Column("webhook_lease_expires_at", sa.DateTime(timezone=True), nullable=True)
-        )
-        batch_op.add_column(
-            sa.Column("webhook_last_verified_at", sa.DateTime(timezone=True), nullable=True)
-        )
+        if "webhook_callback_url" not in columns:
+            batch_op.add_column(
+                sa.Column("webhook_callback_url", sa.String(length=512), nullable=True)
+            )
+        if "webhook_lease_seconds" not in columns:
+            batch_op.add_column(sa.Column("webhook_lease_seconds", sa.Integer(), nullable=True))
+        if "webhook_lease_expires_at" not in columns:
+            batch_op.add_column(
+                sa.Column("webhook_lease_expires_at", sa.DateTime(timezone=True), nullable=True)
+            )
+        if "webhook_last_verified_at" not in columns:
+            batch_op.add_column(
+                sa.Column("webhook_last_verified_at", sa.DateTime(timezone=True), nullable=True)
+            )
 
     connection = op.get_bind()
     _backfill_callback_urls(connection)
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("youtube_channels")]
+
     with op.batch_alter_table("youtube_channels") as batch_op:
-        batch_op.drop_column("webhook_last_verified_at")
-        batch_op.drop_column("webhook_lease_expires_at")
-        batch_op.drop_column("webhook_lease_seconds")
-        batch_op.drop_column("webhook_callback_url")
+        if "webhook_last_verified_at" in columns:
+            batch_op.drop_column("webhook_last_verified_at")
+        if "webhook_lease_expires_at" in columns:
+            batch_op.drop_column("webhook_lease_expires_at")
+        if "webhook_lease_seconds" in columns:
+            batch_op.drop_column("webhook_lease_seconds")
+        if "webhook_callback_url" in columns:
+            batch_op.drop_column("webhook_callback_url")

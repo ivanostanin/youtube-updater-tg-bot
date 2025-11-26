@@ -35,6 +35,7 @@ class YouTubeUpdaterBot:
             logger.info("Starting YouTube Updater Bot...")
 
             # Initialize database
+            logger.info("Initializing database...")
             await init_db()
             logger.info("Database initialized")
 

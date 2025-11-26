@@ -8,6 +8,7 @@ from alembic.config import Config
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from ..utils.config import settings
+from .models import Base
 
 
 logger = logging.getLogger(__name__)
@@ -47,8 +48,11 @@ def _build_alembic_config(
 
 
 async def init_db() -> None:
-    """Run database migrations to ensure schema is up to date."""
+    """Initialize database tables."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
+    """Run database migrations to ensure schema is up to date."""
     def _upgrade() -> None:
         config = _build_alembic_config()
         command.upgrade(config, "head")

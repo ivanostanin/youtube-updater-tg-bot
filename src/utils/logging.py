@@ -92,6 +92,7 @@ def setup_logging() -> logging.Logger:
         logging.getLogger("uvicorn").setLevel(logging.INFO)
         logging.getLogger("httpcore.http11").setLevel(logging.INFO)
         logging.getLogger("httpcore.connection").setLevel(logging.INFO)
+        logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING) # Break the glass in case of emergency
 
         # Configure asyncio logger to be more verbose in debug mode
         if log_level <= logging.DEBUG:
