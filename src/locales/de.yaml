@@ -211,8 +211,7 @@ formatters:
       💬 Halte das Gespräch mit {chat_title} am Laufen.
       Stelle Fragen, teile Highlights oder plane ein gemeinsames Anschauen!
     channel: |-
-      📣 Teile dieses Update mit {chat_title} und pinne es bei Bedarf.
-      💡 Ergänze eine kurze Zusammenfassung, damit alle wissen, warum es wichtig ist.
+      📣 Schaut zu! Teilt! Stellt Fragen!
     shared_fallback: "allen hier"
     channel_fallback: "allen hier"
 

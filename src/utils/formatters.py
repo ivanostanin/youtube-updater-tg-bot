@@ -113,7 +113,7 @@ def format_group_discussion_prompt(
             "formatters.group_prompt.channel",
             locale=locale,
             request_id=request_id,
-            chat_title=audience or "",
+            # chat_title=audience or "",
         )
 
     return translate(

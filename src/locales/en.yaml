@@ -211,8 +211,7 @@ formatters:
       💬 Keep the conversation going with {chat_title}.
       Ask for thoughts, share highlights, or schedule a watch party!
     channel: |-
-      📣 Share this update with {chat_title} and pin it if it's important.
-      💡 Add your own summary so followers know why it matters.
+      📣 Watch! Share! Ask questions!
     shared_fallback: "everyone here"
     channel_fallback: "everyone here"
 
