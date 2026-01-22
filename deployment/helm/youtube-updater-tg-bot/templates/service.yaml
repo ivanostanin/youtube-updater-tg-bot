@@ -4,6 +4,10 @@ metadata:
   name: {{ include "youtube-updater-tg-bot.fullname" . }}
   labels:
     {{- include "youtube-updater-tg-bot.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "{{ .Values.service.port }}"
+    prometheus.io/path: "/metrics"
 spec:
   type: {{ .Values.service.type }}
   ports:

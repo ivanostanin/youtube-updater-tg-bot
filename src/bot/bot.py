@@ -49,10 +49,7 @@ class YouTubeUpdaterBot:
             # Create Telegram bot application
             defaults = Defaults(parse_mode=ParseMode.MARKDOWN_V2)
             self.application = (
-                Application.builder()
-                .token(settings.telegram_bot_token)
-                .defaults(defaults)
-                .build()
+                Application.builder().token(settings.telegram_bot_token).defaults(defaults).build()
             )
             if self.application is None:
                 raise RuntimeError("Failed to create Telegram application")

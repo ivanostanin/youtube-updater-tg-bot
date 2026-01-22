@@ -53,6 +53,7 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
 
     """Run database migrations to ensure schema is up to date."""
+
     def _upgrade() -> None:
         config = _build_alembic_config()
         command.upgrade(config, "head")

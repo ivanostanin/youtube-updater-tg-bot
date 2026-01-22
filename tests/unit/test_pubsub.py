@@ -21,6 +21,7 @@ def mock_httpx_client() -> Generator[AsyncMock]:
         mock_client_cls.return_value = mock_instance
         yield mock_instance
 
+
 @allure.feature("Webhooks")
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.BLOCKER)
@@ -165,8 +166,8 @@ async def test_subscribe_to_channel_http_error(mock_httpx_client: AsyncMock) -> 
 
     # Mock HTTP error
     mock_httpx_client.post.side_effect = httpx.HTTPStatusError(
-            "Server Error", request=MagicMock(), response=MagicMock(status_code=500)
-        )
+        "Server Error", request=MagicMock(), response=MagicMock(status_code=500)
+    )
 
     result = await manager.subscribe_to_channel("UCtest123")
 
@@ -345,8 +346,8 @@ async def test_unsubscribe_from_channel_http_error(mock_httpx_client: AsyncMock)
 
     # Mock HTTP error
     mock_httpx_client.post.side_effect = httpx.HTTPStatusError(
-            "Server Error", request=MagicMock(), response=MagicMock(status_code=503)
-        )
+        "Server Error", request=MagicMock(), response=MagicMock(status_code=503)
+    )
 
     result = await manager.unsubscribe_from_channel("UCtest123")
 
@@ -424,7 +425,9 @@ async def test_verify_subscription_exception(mock_httpx_client: AsyncMock) -> No
 @allure.story("PubSubHubbub")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-async def test_close_client(mock_httpx_client: AsyncMock) -> None: # mock_httpx_client is manager.client
+async def test_close_client(
+    mock_httpx_client: AsyncMock,
+) -> None:  # mock_httpx_client is manager.client
     """Test closing HTTP client works correctly.
 
     Args:

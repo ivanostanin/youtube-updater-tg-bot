@@ -4,6 +4,7 @@ from typing import Any
 import feedparser
 import httpx
 
+from ..utils import metrics
 from ..utils.config import settings
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
 
@@ -81,6 +82,7 @@ class YouTubeAPI:
                 },
             )
             response.raise_for_status()
+            metrics.record_youtube_api_call("success")
             data = response.json()
 
             if data.get("items"):
@@ -103,6 +105,7 @@ class YouTubeAPI:
                 )
                 return channel_data
         except Exception as e:
+            metrics.record_youtube_api_call("error")
             logger.error(
                 "Error fetching channel by id",
                 extra=log_context(
@@ -131,6 +134,7 @@ class YouTubeAPI:
                 },
             )
             response.raise_for_status()
+            metrics.record_youtube_api_call("success")
             data = response.json()
 
             if data.get("items"):
@@ -154,6 +158,7 @@ class YouTubeAPI:
                 )
                 return channel_data
         except Exception as e:
+            metrics.record_youtube_api_call("error")
             logger.error(
                 "Error fetching channel by username",
                 extra=log_context(
@@ -183,6 +188,7 @@ class YouTubeAPI:
                 },
             )
             response.raise_for_status()
+            metrics.record_youtube_api_call("success")
             data = response.json()
 
             if data.get("items"):
@@ -206,6 +212,7 @@ class YouTubeAPI:
                 )
                 return channel_data
         except Exception as e:
+            metrics.record_youtube_api_call("error")
             logger.error(
                 "Error fetching channel by handle",
                 extra=log_context(
@@ -234,6 +241,7 @@ class YouTubeAPI:
                 },
             )
             response.raise_for_status()
+            metrics.record_youtube_api_call("success")
             data = response.json()
 
             if data.get("items"):
@@ -260,6 +268,7 @@ class YouTubeAPI:
                 )
                 return video_data
         except Exception as e:
+            metrics.record_youtube_api_call("error")
             logger.error(
                 "Error fetching video info",
                 extra=log_context(

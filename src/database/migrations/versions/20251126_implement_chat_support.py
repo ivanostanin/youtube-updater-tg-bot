@@ -204,7 +204,9 @@ def upgrade() -> None:
         batch_op.alter_column("chat_id", existing_type=sa.Integer(), nullable=False)
         if "user_id" in [c["name"] for c in inspector.get_columns("subscriptions")]:
             batch_op.drop_column("user_id")
-        if "uq_subscriptions_chat_channel_active" not in [c["name"] for c in inspector.get_unique_constraints("subscriptions")]:
+        if "uq_subscriptions_chat_channel_active" not in [
+            c["name"] for c in inspector.get_unique_constraints("subscriptions")
+        ]:
             batch_op.create_unique_constraint(
                 "uq_subscriptions_chat_channel_active", ["chat_id", "channel_id", "is_active"]
             )
@@ -243,7 +245,9 @@ def downgrade() -> None:
     if "subscriptions" in inspector.get_table_names():
         op.drop_index("ix_subscriptions_chat_id", table_name="subscriptions")
         with op.batch_alter_table("subscriptions", schema=None) as batch_op:
-            if "uq_subscriptions_chat_channel_active" in [c["name"] for c in inspector.get_unique_constraints("subscriptions")]:
+            if "uq_subscriptions_chat_channel_active" in [
+                c["name"] for c in inspector.get_unique_constraints("subscriptions")
+            ]:
                 batch_op.drop_constraint("uq_subscriptions_chat_channel_active", type_="unique")
             if "user_id" not in [c["name"] for c in inspector.get_columns("subscriptions")]:
                 batch_op.add_column(sa.Column("user_id", sa.Integer(), nullable=True))

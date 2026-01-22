@@ -1,7 +1,10 @@
+import time
+
 from telegram import Bot
 from telegram.error import TelegramError
 
 from ..database.models import Video, YouTubeChannel
+from ..utils import metrics
 from ..utils.formatters import format_group_discussion_prompt
 from ..utils.i18n import translate
 from ..utils.logging import get_logger, log_context, new_request_id, sanitize_label
@@ -29,6 +32,7 @@ class NotificationService:
     ) -> int | None:
         """Send a video notification to a chat."""
         correlation_id = request_id or new_request_id()
+        start_time = time.time()
         try:
             message = self.format_video_message(
                 video,
@@ -44,6 +48,9 @@ class NotificationService:
                 text=message,
                 disable_web_page_preview=False,
             )
+
+            latency = time.time() - start_time
+            metrics.observe_notification_latency(latency)
 
             logger.info(
                 "Sent video notification",
@@ -62,6 +69,8 @@ class NotificationService:
             return sent_message.message_id
 
         except TelegramError as error:
+            latency = time.time() - start_time
+            metrics.observe_notification_latency(latency)
             logger.error(
                 "Telegram error sending video notification",
                 extra=log_context(
@@ -267,9 +276,7 @@ class NotificationService:
                 error_message=error_message,
             )
 
-            sent_message = await self.bot.send_message(
-                chat_id=chat_telegram_id, text=message
-            )
+            sent_message = await self.bot.send_message(chat_id=chat_telegram_id, text=message)
 
             logger.info(
                 "Sent error notification",

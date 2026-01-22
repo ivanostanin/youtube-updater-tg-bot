@@ -1,11 +1,14 @@
+import time
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 import feedparser
 from feedparser import FeedParserDict
+from prometheus_client import make_asgi_app
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.routing import Mount
 
 from ..bot.notifications import NotificationService
 from ..database.database import AsyncSessionLocal
@@ -22,6 +25,9 @@ from .constants import DEFAULT_PUBSUB_LEASE_SECONDS, TOPIC_CHANNEL_QUERY_PARAM
 
 
 logger = get_logger(__name__)
+
+# Track application start time for uptime calculation
+APP_START_TIME = time.time()
 
 
 class WebhookHandlers:
@@ -248,6 +254,9 @@ class WebhookHandlers:
                 ),
             )
 
+            # Record webhook notification received
+            metrics.record_webhook_notification()
+
             # Process each video entry
             for entry in feed.entries:
                 await self.process_video_update(entry, request_id=request_id)
@@ -419,14 +428,28 @@ class WebhookHandlers:
 
     async def health_check(self, request: Request) -> JSONResponse:
         """Health check endpoint."""
-        return JSONResponse({"status": "healthy", "timestamp": datetime.utcnow().isoformat()})
+        uptime_seconds = time.time() - APP_START_TIME
+        return JSONResponse(
+            {
+                "status": "healthy",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "uptime_seconds": round(uptime_seconds, 2),
+            }
+        )
 
 
 def create_webhook_app(notification_service: NotificationService) -> Starlette:
     """Create Starlette app for webhook handling."""
     handlers = WebhookHandlers(notification_service)
 
-    app = Starlette()
+    # Create Prometheus metrics app
+    metrics_app = make_asgi_app()
+
+    app = Starlette(
+        routes=[
+            Mount("/metrics", app=metrics_app),
+        ]
+    )
 
     # Add routes
     app.add_route(settings.webhook_path, handlers.youtube_webhook, methods=["GET", "POST"])

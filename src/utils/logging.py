@@ -1,11 +1,14 @@
 import logging
 import logging.handlers
+import os
 import sys
 import uuid
 from collections.abc import Mapping, MutableMapping
 from pathlib import Path
 from threading import Lock
 from typing import Any
+
+from pythonjsonlogger import json
 
 from .config import settings
 
@@ -57,11 +60,29 @@ def setup_logging() -> logging.Logger:
         logs_dir = Path("logs")
         logs_dir.mkdir(exist_ok=True)
 
+        # Determine if JSON logging is enabled via environment variable
+        use_json_logging = os.getenv("JSON_LOGGING", "false").lower() in ("true", "1", "yes")
+
         # Create formatters
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+        if use_json_logging:
+            # JSON formatter with required context fields
+            json_formatter = json.JsonFormatter(
+                "%(timestamp)s %(level)s %(name)s %(message)s "
+                "%(user_id)s %(chat_id)s %(channel_id)s "
+                "%(operation)s %(request_id)s",
+                rename_fields={"levelname": "level", "asctime": "timestamp"},
+                datefmt="%Y-%m-%dT%H:%M:%S",
+            )
+            console_formatter = json_formatter
+            file_formatter = json_formatter
+        else:
+            # Traditional text formatter
+            text_formatter = logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+            console_formatter = text_formatter  # type: ignore[assignment]
+            file_formatter = text_formatter  # type: ignore[assignment]
 
         # Configure root logger
         root_logger = logging.getLogger()
@@ -73,12 +94,12 @@ def setup_logging() -> logging.Logger:
 
         # Create console handler with immediate flushing
         console_handler = UnbufferedStreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
+        console_handler.setFormatter(console_formatter)
         console_handler.setLevel(log_level)
 
         # Create file handler
         file_handler = logging.FileHandler(logs_dir / "bot.log", mode="a")
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(file_formatter)
         file_handler.setLevel(log_level)
 
         # Add our handlers
@@ -92,7 +113,9 @@ def setup_logging() -> logging.Logger:
         logging.getLogger("uvicorn").setLevel(logging.INFO)
         logging.getLogger("httpcore.http11").setLevel(logging.INFO)
         logging.getLogger("httpcore.connection").setLevel(logging.INFO)
-        logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING) # Break the glass in case of emergency
+        logging.getLogger("sqlalchemy.engine.Engine").setLevel(
+            logging.WARNING
+        )  # Break the glass in case of emergency
 
         # Configure asyncio logger to be more verbose in debug mode
         if log_level <= logging.DEBUG:

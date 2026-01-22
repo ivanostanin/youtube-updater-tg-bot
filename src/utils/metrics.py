@@ -1,8 +1,8 @@
-"""Prometheus metrics helpers for webhook lease instrumentation."""
+"""Prometheus metrics helpers for application monitoring."""
 
 from __future__ import annotations
 
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge, Histogram
 
 
 _DEFAULT_MODE = "unknown"
@@ -36,6 +36,40 @@ CHANNEL_UNLINK_TOTAL = Counter(
     "channel_unlink_total",
     "DM channel unlink attempts grouped by outcome (prompt, success, cancelled, denied, error).",
     ("result",),
+)
+
+# Story 1.5 metrics
+TELEGRAM_COMMANDS_TOTAL = Counter(
+    "telegram_commands_total",
+    "Total number of Telegram bot commands executed.",
+    ("command", "status"),
+)
+
+WEBHOOK_NOTIFICATIONS_RECEIVED_TOTAL = Counter(
+    "webhook_notifications_received_total",
+    "Total number of webhook notifications received from YouTube.",
+)
+
+YOUTUBE_API_CALLS_TOTAL = Counter(
+    "youtube_api_calls_total",
+    "Total number of YouTube API calls made.",
+    ("status",),
+)
+
+SUBSCRIPTION_COUNT = Gauge(
+    "subscription_count",
+    "Current number of active YouTube channel subscriptions.",
+)
+
+ACTIVE_USERS_COUNT = Gauge(
+    "active_users_count",
+    "Current number of active users.",
+)
+
+NOTIFICATION_DELIVERY_LATENCY_SECONDS = Histogram(
+    "notification_delivery_latency_seconds",
+    "Time taken to deliver notifications to Telegram users.",
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, float("inf")),
 )
 
 
@@ -72,6 +106,36 @@ def record_channel_unlink(result: str) -> None:
     CHANNEL_UNLINK_TOTAL.labels(result=result).inc()
 
 
+def record_command(command: str, status: str = "success") -> None:
+    """Increment the command counter for the provided command and status."""
+    TELEGRAM_COMMANDS_TOTAL.labels(command=command, status=status).inc()
+
+
+def record_webhook_notification() -> None:
+    """Increment the webhook notification counter."""
+    WEBHOOK_NOTIFICATIONS_RECEIVED_TOTAL.inc()
+
+
+def record_youtube_api_call(status: str = "success") -> None:
+    """Increment the YouTube API call counter for the provided status."""
+    YOUTUBE_API_CALLS_TOTAL.labels(status=status).inc()
+
+
+def set_subscription_count(count: int) -> None:
+    """Set the current subscription count gauge."""
+    SUBSCRIPTION_COUNT.set(count)
+
+
+def set_active_users_count(count: int) -> None:
+    """Set the current active users count gauge."""
+    ACTIVE_USERS_COUNT.set(count)
+
+
+def observe_notification_latency(latency_seconds: float) -> None:
+    """Record a notification delivery latency observation."""
+    NOTIFICATION_DELIVERY_LATENCY_SECONDS.observe(latency_seconds)
+
+
 def reset_pubsub_metrics() -> None:
     """Clear recorded label values for deterministic tests."""
     WEBHOOK_VERIFICATION_CHALLENGES.clear()
@@ -79,3 +143,13 @@ def reset_pubsub_metrics() -> None:
     CHANNEL_LINK_TOTAL.clear()
     CHANNEL_SELECTION_TOTAL.clear()
     CHANNEL_UNLINK_TOTAL.clear()
+
+
+def reset_all_metrics() -> None:
+    """Clear all metrics for deterministic tests."""
+    reset_pubsub_metrics()
+    TELEGRAM_COMMANDS_TOTAL.clear()
+    WEBHOOK_NOTIFICATIONS_RECEIVED_TOTAL._value.set(0)
+    YOUTUBE_API_CALLS_TOTAL.clear()
+    SUBSCRIPTION_COUNT.set(0)
+    ACTIVE_USERS_COUNT.set(0)

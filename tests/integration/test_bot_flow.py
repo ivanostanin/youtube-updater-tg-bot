@@ -45,7 +45,9 @@ async def test_end_to_end_subscription_flow(
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     # Mock the actual webhook manager's subscribe method
-    with patch("src.bot.handlers.PubSubManager.subscribe_to_channel", new_callable=AsyncMock) as mock_subscribe_to_channel:
+    with patch(
+        "src.bot.handlers.PubSubManager.subscribe_to_channel", new_callable=AsyncMock
+    ) as mock_subscribe_to_channel:
         mock_subscribe_to_channel.return_value = True
 
         # Mock YouTube API to return channel info
@@ -92,7 +94,9 @@ async def test_dm_channel_link_and_subscription_targets_channel(
     """Ensure DM channel linking + subscribe flows attach subscriptions to the channel chat."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
-    with patch("src.bot.handlers.PubSubManager.subscribe_to_channel", new_callable=AsyncMock) as mock_subscribe_to_channel:
+    with patch(
+        "src.bot.handlers.PubSubManager.subscribe_to_channel", new_callable=AsyncMock
+    ) as mock_subscribe_to_channel:
         mock_subscribe_to_channel.return_value = True
 
         channel_chat = MagicMock()
@@ -110,13 +114,17 @@ async def test_dm_channel_link_and_subscription_targets_channel(
 
         mock_telegram_context.args = ["@linkedbroadcast"]
         mock_telegram_context.bot.get_chat = AsyncMock(return_value=channel_chat)
-        mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
+        mock_telegram_context.bot.get_chat_member = AsyncMock(
+            side_effect=[admin_member, bot_member]
+        )
         mock_telegram_update.message.reply_text = AsyncMock()
 
         with patch("src.bot.handlers.AsyncSessionLocal", return_value=async_db_session):
             await handlers.channel_link_command(mock_telegram_update, mock_telegram_context)
 
-        mock_telegram_context.bot.get_chat_member = AsyncMock(side_effect=[admin_member, bot_member])
+        mock_telegram_context.bot.get_chat_member = AsyncMock(
+            side_effect=[admin_member, bot_member]
+        )
 
         mock_youtube_api.resolve_url = AsyncMock(
             return_value={
@@ -135,7 +143,9 @@ async def test_dm_channel_link_and_subscription_targets_channel(
             await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
 
         mock_subscribe_to_channel.assert_awaited()
-        channel_rows = await async_db_session.execute(select(Chat).where(Chat.chat_type == "channel"))
+        channel_rows = await async_db_session.execute(
+            select(Chat).where(Chat.chat_type == "channel")
+        )
         channel_chat_row = channel_rows.scalar_one()
         dm_rows = await async_db_session.execute(select(Chat).where(Chat.chat_type == "private"))
         dm_chat_row = dm_rows.scalar_one()
@@ -214,8 +224,12 @@ async def test_unsubscription_flow_with_webhook_cleanup(
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
     with (
-        patch("src.bot.handlers.PubSubManager.unsubscribe_from_channel", new_callable=AsyncMock) as mock_unsubscribe_from_channel,
-        patch.object(handlers, "check_if_channel_has_other_subscribers", new_callable=AsyncMock) as mock_check_if_channel_has_other_subscribers,
+        patch(
+            "src.bot.handlers.PubSubManager.unsubscribe_from_channel", new_callable=AsyncMock
+        ) as mock_unsubscribe_from_channel,
+        patch.object(
+            handlers, "check_if_channel_has_other_subscribers", new_callable=AsyncMock
+        ) as mock_check_if_channel_has_other_subscribers,
     ):
         mock_unsubscribe_from_channel.return_value = True
         mock_check_if_channel_has_other_subscribers.return_value = False
@@ -277,7 +291,9 @@ async def test_resubscribe_reactivates_soft_deleted_subscription(
     """Ensure a chat can resubscribe after a soft delete without integrity errors."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
 
-    with patch("src.bot.handlers.PubSubManager.subscribe_to_channel", new_callable=AsyncMock) as mock_subscribe_to_channel:
+    with patch(
+        "src.bot.handlers.PubSubManager.subscribe_to_channel", new_callable=AsyncMock
+    ) as mock_subscribe_to_channel:
         mock_subscribe_to_channel.return_value = True
 
         mock_youtube_api.resolve_url = AsyncMock(
@@ -381,7 +397,9 @@ async def test_notification_delivery_flow(
         published_at=datetime(2024, 1, 1),
     )
 
-    new_notification: Notification = await notif_repo.create_notification(chat.id, video.id, message_id="msg123")
+    new_notification: Notification = await notif_repo.create_notification(
+        chat.id, video.id, message_id="msg123"
+    )
 
     assert new_notification is not None
     assert new_notification.video_id == video.id

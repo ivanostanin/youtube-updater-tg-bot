@@ -215,7 +215,9 @@ def test_restore_latest_backup_not_found(tmp_path: Path) -> None:
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.NORMAL)
 @pytest.mark.unit
-def test_ensure_database_backup_skips_when_present(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_ensure_database_backup_skips_when_present(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
     """Auto-restore should not run when database already exists."""
     db_path = tmp_path / "bot.db"
     db_path.write_text("existing")
@@ -242,7 +244,9 @@ def test_ensure_database_backup_skips_when_present(monkeypatch: MonkeyPatch, tmp
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_ensure_database_backup_handles_missing_configuration(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_ensure_database_backup_handles_missing_configuration(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
     """Missing configuration should log and continue without raising."""
     db_path = tmp_path / "bot.db"
 
@@ -265,7 +269,9 @@ def test_ensure_database_backup_handles_missing_configuration(monkeypatch: Monke
 @allure.label("priority", "P0")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-def test_ensure_database_backup_restores_latest_backup(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_ensure_database_backup_restores_latest_backup(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
     """When database missing, ensure restore is invoked and file created."""
     db_path = tmp_path / "bot.db"
 
@@ -293,7 +299,9 @@ def test_ensure_database_backup_restores_latest_backup(monkeypatch: MonkeyPatch,
 @allure.label("priority", "P1")
 @allure.severity(allure.severity_level.CRITICAL)
 @pytest.mark.unit
-def test_ensure_database_backup_warns_on_missing_backups(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+def test_ensure_database_backup_warns_on_missing_backups(
+    monkeypatch: MonkeyPatch, tmp_path: Path
+) -> None:
     """BackupNotFoundError should be swallowed to allow fresh database."""
     db_path = tmp_path / "bot.db"
 
@@ -316,7 +324,9 @@ def test_ensure_database_backup_warns_on_missing_backups(monkeypatch: MonkeyPatc
 @allure.label("priority", "P0")
 @allure.severity(allure.severity_level.BLOCKER)
 @pytest.mark.unit
-def test_restore_cli_skips_when_unconfigured(monkeypatch: MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_restore_cli_skips_when_unconfigured(
+    monkeypatch: MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     """CLI should exit gracefully when object storage is not configured."""
     module = _load_restore_cli_module()
     destination = tmp_path / "bot.db"

@@ -133,8 +133,9 @@ async def test_subscribe_command_with_valid_url(
     mock_telegram_context.args = ["https://youtube.com/@testchannel"]
 
     # Mock handle_youtube_url to verify it was called
-    with patch.object(handlers, 'handle_youtube_url', new_callable=AsyncMock) as mock_handle_youtube_url:
-
+    with patch.object(
+        handlers, "handle_youtube_url", new_callable=AsyncMock
+    ) as mock_handle_youtube_url:
         await handlers.subscribe_command(mock_telegram_update, mock_telegram_context)
 
         # Verify handle_youtube_url was called with the URL
@@ -252,7 +253,7 @@ async def test_list_command_creates_user_for_group_admin(
 ):
     """Group admins without prior DM history should still be able to list subscriptions."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    with patch.object(handlers.acl_service, 'require_admin', new=AsyncMock(return_value=True)):
+    with patch.object(handlers.acl_service, "require_admin", new=AsyncMock(return_value=True)):
         mock_telegram_update.effective_chat.type = "supergroup"
         mock_telegram_update.message.chat.type = "supergroup"
         mock_telegram_update.effective_chat.username = "testgroup"
@@ -460,9 +461,15 @@ async def test_handle_unsubscribe_callback_success(
         async_db_session: Async database session fixture.
     """
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    with patch.object(handlers, 'manage_channel_webhook', new_callable=AsyncMock, return_value=True), \
-         patch.object(handlers, 'check_if_channel_has_other_subscribers', new_callable=AsyncMock, return_value=False):
-
+    with (
+        patch.object(handlers, "manage_channel_webhook", new_callable=AsyncMock, return_value=True),
+        patch.object(
+            handlers,
+            "check_if_channel_has_other_subscribers",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
         # Create user, chat, channel, and subscription
         user = User(
             telegram_id="123456789",
@@ -789,9 +796,15 @@ async def test_subscribe_sets_channel_webhook(
 ):
     """Ensure the channel stores the callback URL after initial subscription."""
     handlers = BotHandlers(mock_youtube_api, mock_telegram_context.bot)
-    with patch.object(handlers, 'manage_channel_webhook', new_callable=AsyncMock, return_value=True), \
-         patch.object(handlers, 'check_if_channel_has_other_subscribers', new_callable=AsyncMock, return_value=False):
-
+    with (
+        patch.object(handlers, "manage_channel_webhook", new_callable=AsyncMock, return_value=True),
+        patch.object(
+            handlers,
+            "check_if_channel_has_other_subscribers",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
         mock_youtube_api.resolve_url = AsyncMock(
             return_value={
                 "id": "UCtest123",

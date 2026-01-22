@@ -666,9 +666,7 @@ class BotHandlers:
                     locale=locale,
                     request_id=request_id,
                     channel_title=(
-                        forwarded_chat.title
-                        or forwarded_chat.username
-                        or str(forwarded_chat.id)
+                        forwarded_chat.title or forwarded_chat.username or str(forwarded_chat.id)
                     ),
                 )
             )
@@ -977,326 +975,341 @@ class BotHandlers:
     ) -> None:
         """Link a broadcast channel to the admin via DM."""
         request_id = new_request_id()
-        user = update.effective_user
-        message = update.message
-        telegram_chat = update.effective_chat
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-        )
-        locale = locale_hint
-        if user is None or message is None or telegram_chat is None:
-            self._warning(
-                "Received /channel_link without required context",
-                request_id=request_id,
-                operation="handler.channel_link",
-                chat=telegram_chat,
-                user=user,
+        try:
+            user = update.effective_user
+            message = update.message
+            telegram_chat = update.effective_chat
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
             )
-            return
-
-        if getattr(telegram_chat, "type", "private") != "private":
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.private_only",
-                    locale=locale,
-                    request_id=request_id,
-                )
-            )
-            return
-
-        forwarded_channel = self._extract_forwarded_channel(
-            message,
-            request_id=request_id,
-        )
-        channel_chat: TelegramChat | None = None
-        identifier_candidates: list[str] = []
-        if context.args:
-            identifier_candidates = self._channel_identifier_candidates(context.args[0])
-            if not identifier_candidates:
-                await message.reply_text(
-                    self._translate(
-                        "handlers.channel_link.invalid_identifier",
-                        locale=locale,
-                        request_id=request_id,
-                    )
-                )
-                return
-        elif forwarded_channel is not None:
-            channel_chat = forwarded_channel
-
-        if self.bot is None:
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.bot_unavailable",
-                    locale=locale,
-                    request_id=request_id,
-                )
-            )
-            metrics.record_channel_link("error")
-            return
-
-        if identifier_candidates:
-            resolution_error: TelegramError | None = None
-            for candidate in identifier_candidates:
-                try:
-                    channel_chat = cast(TelegramChat, await self.bot.get_chat(candidate))
-                    break
-                except TelegramError as exc:
-                    resolution_error = exc
-            if channel_chat is None:
-                await message.reply_text(
-                    self._translate(
-                        "handlers.channel_link.lookup_failed",
-                        locale=locale,
-                        request_id=request_id,
-                    )
-                )
+            locale = locale_hint
+            if user is None or message is None or telegram_chat is None:
                 self._warning(
-                    "Failed to resolve channel for linking",
+                    "Received /channel_link without required context",
                     request_id=request_id,
                     operation="handler.channel_link",
+                    chat=telegram_chat,
                     user=user,
-                    extra={
-                        "meta_error": sanitize_label(str(resolution_error))
-                        if resolution_error
-                        else None
-                    },
+                )
+                metrics.record_command("channel_link", "error")
+                return
+
+            if getattr(telegram_chat, "type", "private") != "private":
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.private_only",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
+                metrics.record_command("channel_link", "error")
+                return
+
+            forwarded_channel = self._extract_forwarded_channel(
+                message,
+                request_id=request_id,
+            )
+            channel_chat: TelegramChat | None = None
+            identifier_candidates: list[str] = []
+            if context.args:
+                identifier_candidates = self._channel_identifier_candidates(context.args[0])
+                if not identifier_candidates:
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.channel_link.invalid_identifier",
+                            locale=locale,
+                            request_id=request_id,
+                        )
+                    )
+                    return
+            elif forwarded_channel is not None:
+                channel_chat = forwarded_channel
+
+            if self.bot is None:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.bot_unavailable",
+                        locale=locale,
+                        request_id=request_id,
+                    )
                 )
                 metrics.record_channel_link("error")
                 return
 
-        if channel_chat is None:
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.forward_hint",
-                    locale=locale,
-                    request_id=request_id,
-                )
-            )
-            metrics.record_channel_link("denied")
-            return
+            if identifier_candidates:
+                resolution_error: TelegramError | None = None
+                for candidate in identifier_candidates:
+                    try:
+                        channel_chat = cast(TelegramChat, await self.bot.get_chat(candidate))
+                        break
+                    except TelegramError as exc:
+                        resolution_error = exc
+                if channel_chat is None:
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.channel_link.lookup_failed",
+                            locale=locale,
+                            request_id=request_id,
+                        )
+                    )
+                    self._warning(
+                        "Failed to resolve channel for linking",
+                        request_id=request_id,
+                        operation="handler.channel_link",
+                        user=user,
+                        extra={
+                            "meta_error": sanitize_label(str(resolution_error))
+                            if resolution_error
+                            else None
+                        },
+                    )
+                    metrics.record_channel_link("error")
+                    return
 
-        if getattr(channel_chat, "type", None) != "channel":
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.invalid_type",
-                    locale=locale,
-                    request_id=request_id,
+            if channel_chat is None:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.forward_hint",
+                        locale=locale,
+                        request_id=request_id,
+                    )
                 )
-            )
-            metrics.record_channel_link("denied")
-            return
+                metrics.record_channel_link("denied")
+                return
 
-        try:
-            admin_member = await self.bot.get_chat_member(channel_chat.id, user.id)
-        except TelegramError as exc:
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.permission_check_failed",
+            if getattr(channel_chat, "type", None) != "channel":
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.invalid_type",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
+                metrics.record_channel_link("denied")
+                return
+
+            try:
+                admin_member = await self.bot.get_chat_member(channel_chat.id, user.id)
+            except TelegramError as exc:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.permission_check_failed",
+                        locale=locale,
+                        request_id=request_id,
+                    )
+                )
+                self._error(
+                    "Failed to verify user admin status for channel link",
+                    request_id=request_id,
+                    operation="handler.channel_link",
+                    chat=channel_chat,
+                    user=user,
+                    extra={"meta_error": sanitize_label(str(exc))},
+                )
+                metrics.record_channel_link("error")
+                return
+
+            if admin_member.status not in {"administrator", "creator"}:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.admin_only",
+                        locale=locale,
+                        request_id=request_id,
+                        channel_title=(
+                            self._chat_display_name(channel_chat) or channel_chat.title or ""
+                        ),
+                    )
+                )
+                metrics.record_channel_link("denied")
+                return
+
+            bot_ok, missing_perms = await self._verify_bot_permissions(
+                channel_chat_id=channel_chat.id,
+                locale=locale,
+                request_id=request_id,
+            )
+            if not bot_ok:
+                missing_list = self._format_missing_permissions(
+                    missing_perms,
                     locale=locale,
                     request_id=request_id,
                 )
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_link.bot_missing_permissions",
+                        locale=locale,
+                        request_id=request_id,
+                        missing_permissions=missing_list,
+                    )
+                )
+                metrics.record_channel_link("bot_missing")
+                return
+
+            async with AsyncSessionLocal() as session:
+                user_repo = UserRepository(session)
+                chat_repo = ChatRepository(session)
+                link_repo = ChannelAdminLinkRepository(session)
+
+                db_user = await user_repo.get_or_create_user(
+                    telegram_id=str(user.id),
+                    username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                )
+                actor_chat = await self._ensure_chat_record(
+                    session,
+                    telegram_chat=telegram_chat,
+                    db_user_id=db_user.id,
+                    preferred_locale=locale_hint,
+                    request_id=request_id,
+                )
+                channel_db_chat = await self._ensure_chat_record(
+                    session,
+                    telegram_chat=channel_chat,
+                    db_user_id=None,
+                    preferred_locale=locale_hint,
+                    request_id=request_id,
+                )
+                await link_repo.upsert_link(
+                    channel_chat_id=channel_db_chat.id,
+                    admin_user_id=db_user.id,
+                    role=admin_member.status or "administrator",
+                    last_verified_at=datetime.now(UTC),
+                    request_id=request_id,
+                )
+                await chat_repo.set_active_channel(
+                    chat=actor_chat,
+                    channel_chat=channel_db_chat,
+                    ttl_seconds=CHANNEL_CONTEXT_TTL_SECONDS,
+                )
+                locale = self._resolve_locale(
+                    chat=actor_chat,
+                    locale_hint=locale_hint,
+                    telegram_chat=telegram_chat,
+                )
+
+            channel_title = (
+                self._chat_display_name(channel_chat)
+                or channel_chat.title
+                or channel_chat.username
+                or str(channel_chat.id)
             )
-            self._error(
-                "Failed to verify user admin status for channel link",
+            await message.reply_text(
+                self._translate(
+                    "handlers.channel_link.success",
+                    locale=locale,
+                    request_id=request_id,
+                    channel_title=channel_title,
+                    ttl_minutes=settings.dm_channel_context_ttl_minutes,
+                )
+            )
+            self._info(
+                "Linked channel via DM",
                 request_id=request_id,
                 operation="handler.channel_link",
                 chat=channel_chat,
                 user=user,
-                extra={"meta_error": sanitize_label(str(exc))},
+                extra={"meta_channel_title": sanitize_label(channel_title)},
             )
-            metrics.record_channel_link("error")
-            return
-
-        if admin_member.status not in {"administrator", "creator"}:
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.admin_only",
-                    locale=locale,
-                    request_id=request_id,
-                    channel_title=(
-                        self._chat_display_name(channel_chat) or channel_chat.title or ""
-                    ),
-                )
-            )
-            metrics.record_channel_link("denied")
-            return
-
-        bot_ok, missing_perms = await self._verify_bot_permissions(
-            channel_chat_id=channel_chat.id,
-            locale=locale,
-            request_id=request_id,
-        )
-        if not bot_ok:
-            missing_list = self._format_missing_permissions(
-                missing_perms,
-                locale=locale,
-                request_id=request_id,
-            )
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_link.bot_missing_permissions",
-                    locale=locale,
-                    request_id=request_id,
-                    missing_permissions=missing_list,
-                )
-            )
-            metrics.record_channel_link("bot_missing")
-            return
-
-        async with AsyncSessionLocal() as session:
-            user_repo = UserRepository(session)
-            chat_repo = ChatRepository(session)
-            link_repo = ChannelAdminLinkRepository(session)
-
-            db_user = await user_repo.get_or_create_user(
-                telegram_id=str(user.id),
-                username=user.username,
-                first_name=user.first_name,
-                last_name=user.last_name,
-            )
-            actor_chat = await self._ensure_chat_record(
-                session,
-                telegram_chat=telegram_chat,
-                db_user_id=db_user.id,
-                preferred_locale=locale_hint,
-                request_id=request_id,
-            )
-            channel_db_chat = await self._ensure_chat_record(
-                session,
-                telegram_chat=channel_chat,
-                db_user_id=None,
-                preferred_locale=locale_hint,
-                request_id=request_id,
-            )
-            await link_repo.upsert_link(
-                channel_chat_id=channel_db_chat.id,
-                admin_user_id=db_user.id,
-                role=admin_member.status or "administrator",
-                last_verified_at=datetime.now(UTC),
-                request_id=request_id,
-            )
-            await chat_repo.set_active_channel(
-                chat=actor_chat,
-                channel_chat=channel_db_chat,
-                ttl_seconds=CHANNEL_CONTEXT_TTL_SECONDS,
-            )
-            locale = self._resolve_locale(
-                chat=actor_chat,
-                locale_hint=locale_hint,
-                telegram_chat=telegram_chat,
-            )
-
-        channel_title = (
-            self._chat_display_name(channel_chat)
-            or channel_chat.title
-            or channel_chat.username
-            or str(channel_chat.id)
-        )
-        await message.reply_text(
-            self._translate(
-                "handlers.channel_link.success",
-                locale=locale,
-                request_id=request_id,
-                channel_title=channel_title,
-                ttl_minutes=settings.dm_channel_context_ttl_minutes,
-            )
-        )
-        self._info(
-            "Linked channel via DM",
-            request_id=request_id,
-            operation="handler.channel_link",
-            chat=channel_chat,
-            user=user,
-            extra={"meta_channel_title": sanitize_label(channel_title)},
-        )
-        metrics.record_channel_link("success")
+            metrics.record_channel_link("success")
+            metrics.record_command("channel_link", "success")
+        except Exception:
+            metrics.record_command("channel_link", "error")
+            raise
 
     async def channel_select_command(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
         """Show inline keyboard for selecting linked channels."""
         request_id = new_request_id()
-        user = update.effective_user
-        message = update.message
-        telegram_chat = update.effective_chat
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-        )
-        if user is None or message is None or telegram_chat is None:
-            self._warning(
-                "Received /channel_select without required context",
-                request_id=request_id,
-                operation="handler.channel_select",
-                chat=telegram_chat,
-                user=user,
+        try:
+            user = update.effective_user
+            message = update.message
+            telegram_chat = update.effective_chat
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
             )
-            return
-
-        if getattr(telegram_chat, "type", "private") != "private":
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_select.private_only",
-                    locale=locale_hint,
+            if user is None or message is None or telegram_chat is None:
+                self._warning(
+                    "Received /channel_select without required context",
                     request_id=request_id,
+                    operation="handler.channel_select",
+                    chat=telegram_chat,
+                    user=user,
                 )
-            )
-            return
+                metrics.record_command("channel_select", "error")
+                return
 
-        async with AsyncSessionLocal() as session:
-            user_repo = UserRepository(session)
-            link_repo = ChannelAdminLinkRepository(session)
-
-            db_user = await user_repo.get_or_create_user(
-                telegram_id=str(user.id),
-                username=user.username,
-                first_name=user.first_name,
-                last_name=user.last_name,
-            )
-            actor_chat = await self._ensure_chat_record(
-                session,
-                telegram_chat=telegram_chat,
-                db_user_id=db_user.id,
-                preferred_locale=locale_hint,
-                request_id=request_id,
-            )
-            links = await link_repo.list_active_links_for_user(
-                db_user.id,
-                request_id=request_id,
-            )
-            locale = self._resolve_locale(
-                chat=actor_chat,
-                locale_hint=locale_hint,
-                telegram_chat=telegram_chat,
-            )
-            if not links:
+            if getattr(telegram_chat, "type", "private") != "private":
                 await message.reply_text(
                     self._translate(
-                        "handlers.channel_select.none_linked",
-                        locale=locale,
+                        "handlers.channel_select.private_only",
+                        locale=locale_hint,
                         request_id=request_id,
                     )
                 )
-                metrics.record_channel_selection("empty")
+                metrics.record_command("channel_select", "error")
                 return
 
-            keyboard = self._channel_selection_keyboard(
-                links=links,
-                actor_chat=actor_chat,
-                locale=locale,
-                request_id=request_id,
-            )
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_select.prompt",
+            async with AsyncSessionLocal() as session:
+                user_repo = UserRepository(session)
+                link_repo = ChannelAdminLinkRepository(session)
+
+                db_user = await user_repo.get_or_create_user(
+                    telegram_id=str(user.id),
+                    username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
+                )
+                actor_chat = await self._ensure_chat_record(
+                    session,
+                    telegram_chat=telegram_chat,
+                    db_user_id=db_user.id,
+                    preferred_locale=locale_hint,
+                    request_id=request_id,
+                )
+                links = await link_repo.list_active_links_for_user(
+                    db_user.id,
+                    request_id=request_id,
+                )
+                locale = self._resolve_locale(
+                    chat=actor_chat,
+                    locale_hint=locale_hint,
+                    telegram_chat=telegram_chat,
+                )
+                if not links:
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.channel_select.none_linked",
+                            locale=locale,
+                            request_id=request_id,
+                        )
+                    )
+                    metrics.record_channel_selection("empty")
+                    return
+
+                keyboard = self._channel_selection_keyboard(
+                    links=links,
+                    actor_chat=actor_chat,
                     locale=locale,
                     request_id=request_id,
-                    ttl_minutes=settings.dm_channel_context_ttl_minutes,
-                ),
-                reply_markup=keyboard,
-            )
+                )
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_select.prompt",
+                        locale=locale,
+                        request_id=request_id,
+                        ttl_minutes=settings.dm_channel_context_ttl_minutes,
+                    ),
+                    reply_markup=keyboard,
+                )
+            metrics.record_command("channel_select", "success")
+        except Exception:
+            metrics.record_command("channel_select", "error")
+            raise
+
     async def handle_channel_select_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -1495,149 +1508,156 @@ class BotHandlers:
     ) -> None:
         """Prompt for confirming channel unlink operations."""
         request_id = new_request_id()
-        message = update.message
-        user = update.effective_user
-        telegram_chat = update.effective_chat
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-        )
-        if message is None or user is None or telegram_chat is None:
-            self._warning(
-                "Received /channel_unlink without required context",
+        try:
+            message = update.message
+            user = update.effective_user
+            telegram_chat = update.effective_chat
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
+            )
+            if message is None or user is None or telegram_chat is None:
+                self._warning(
+                    "Received /channel_unlink without required context",
+                    request_id=request_id,
+                    operation="handler.channel_unlink",
+                    chat=telegram_chat,
+                    user=user,
+                )
+                metrics.record_command("channel_unlink", "error")
+                return
+
+            if getattr(telegram_chat, "type", "private") != "private":
+                await message.reply_text(
+                    self._translate(
+                        "handlers.channel_unlink.private_only",
+                        locale=locale_hint,
+                        request_id=request_id,
+                    )
+                )
+                metrics.record_channel_unlink("denied")
+                metrics.record_command("channel_unlink", "error")
+                return
+
+            async with AsyncSessionLocal() as session:
+                db_user, actor_chat = await self._get_chat_and_user(
+                    session,
+                    telegram_user=user,
+                    telegram_chat=telegram_chat,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
+                )
+                if actor_chat is None:
+                    locale = self._resolve_locale(
+                        chat=None,
+                        locale_hint=locale_hint,
+                        telegram_chat=telegram_chat,
+                    )
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.channel_unlink.no_channel_selected",
+                            locale=locale,
+                            request_id=request_id,
+                        )
+                    )
+                    metrics.record_channel_unlink("denied")
+                    return
+
+                assert actor_chat is not None
+
+                context_state = await self._build_command_context(
+                    session,
+                    db_user=db_user,
+                    actor_chat=actor_chat,
+                    telegram_chat=telegram_chat,
+                    telegram_user=user,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
+                )
+                if context_state.context_cleared:
+                    await message.reply_text(
+                        self._translate(
+                            context_state.context_message_key or "handlers.channel_context.expired",
+                            locale=context_state.locale,
+                            request_id=request_id,
+                            **context_state.context_message_params,
+                        )
+                    )
+                    metrics.record_channel_unlink("denied")
+                    return
+
+                target_chat = context_state.target_chat
+                locale = context_state.locale
+                if target_chat.chat_type != "channel":
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.channel_unlink.no_channel_selected",
+                            locale=locale,
+                            request_id=request_id,
+                        )
+                    )
+                    metrics.record_channel_unlink("denied")
+                    return
+
+                subscription_repo = SubscriptionRepository(session)
+                subscriptions = await subscription_repo.get_chat_subscriptions(
+                    target_chat.id,
+                    request_id=request_id,
+                )
+                subscription_count = len(subscriptions)
+
+            channel_title = target_chat.title or target_chat.chat_id
+            prompt_text = self._render_contextual_message(
+                "handlers.channel_unlink.prompt",
+                locale=locale,
+                request_id=request_id,
+                target_chat=target_chat,
+                channel_title=channel_title,
+                subscription_count=subscription_count,
+            )
+            keyboard = InlineKeyboardMarkup(
+                [
+                    [
+                        InlineKeyboardButton(
+                            self._translate(
+                                "handlers.channel_unlink.confirm_button",
+                                locale=locale,
+                                request_id=request_id,
+                                should_markdownify=False,
+                            ),
+                            callback_data=f"chanunlink::confirm::{target_chat.id}",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            self._translate(
+                                "handlers.channel_unlink.cancel_button",
+                                locale=locale,
+                                request_id=request_id,
+                                should_markdownify=False,
+                            ),
+                            callback_data="chanunlink::cancel",
+                        )
+                    ],
+                ]
+            )
+            await message.reply_text(prompt_text, reply_markup=keyboard)
+            self._info(
+                "Prompted channel unlink confirmation",
                 request_id=request_id,
                 operation="handler.channel_unlink",
                 chat=telegram_chat,
                 user=user,
+                extra={
+                    "meta_channel_title": sanitize_label(channel_title),
+                    "meta_subscription_count": subscription_count,
+                },
             )
-            return
-
-        if getattr(telegram_chat, "type", "private") != "private":
-            await message.reply_text(
-                self._translate(
-                    "handlers.channel_unlink.private_only",
-                    locale=locale_hint,
-                    request_id=request_id,
-                )
-            )
-            metrics.record_channel_unlink("denied")
-            return
-
-        async with AsyncSessionLocal() as session:
-            db_user, actor_chat = await self._get_chat_and_user(
-                session,
-                telegram_user=user,
-                telegram_chat=telegram_chat,
-                locale_hint=locale_hint,
-                request_id=request_id,
-            )
-            if actor_chat is None:
-                locale = self._resolve_locale(
-                    chat=None,
-                    locale_hint=locale_hint,
-                    telegram_chat=telegram_chat,
-                )
-                await message.reply_text(
-                    self._translate(
-                        "handlers.channel_unlink.no_channel_selected",
-                        locale=locale,
-                        request_id=request_id,
-                    )
-                )
-                metrics.record_channel_unlink("denied")
-                return
-
-            assert actor_chat is not None
-
-            context_state = await self._build_command_context(
-                session,
-                db_user=db_user,
-                actor_chat=actor_chat,
-                telegram_chat=telegram_chat,
-                telegram_user=user,
-                locale_hint=locale_hint,
-                request_id=request_id,
-            )
-            if context_state.context_cleared:
-                await message.reply_text(
-                    self._translate(
-                        context_state.context_message_key or "handlers.channel_context.expired",
-                        locale=context_state.locale,
-                        request_id=request_id,
-                        **context_state.context_message_params,
-                    )
-                )
-                metrics.record_channel_unlink("denied")
-                return
-
-            target_chat = context_state.target_chat
-            locale = context_state.locale
-            if target_chat.chat_type != "channel":
-                await message.reply_text(
-                    self._translate(
-                        "handlers.channel_unlink.no_channel_selected",
-                        locale=locale,
-                        request_id=request_id,
-                    )
-                )
-                metrics.record_channel_unlink("denied")
-                return
-
-            subscription_repo = SubscriptionRepository(session)
-            subscriptions = await subscription_repo.get_chat_subscriptions(
-                target_chat.id,
-                request_id=request_id,
-            )
-            subscription_count = len(subscriptions)
-
-        channel_title = target_chat.title or target_chat.chat_id
-        prompt_text = self._render_contextual_message(
-            "handlers.channel_unlink.prompt",
-            locale=locale,
-            request_id=request_id,
-            target_chat=target_chat,
-            channel_title=channel_title,
-            subscription_count=subscription_count,
-        )
-        keyboard = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(
-                        self._translate(
-                            "handlers.channel_unlink.confirm_button",
-                            locale=locale,
-                            request_id=request_id,
-                            should_markdownify=False,
-                        ),
-                        callback_data=f"chanunlink::confirm::{target_chat.id}",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        self._translate(
-                            "handlers.channel_unlink.cancel_button",
-                            locale=locale,
-                            request_id=request_id,
-                            should_markdownify=False,
-                        ),
-                        callback_data="chanunlink::cancel",
-                    )
-                ],
-            ]
-        )
-        await message.reply_text(prompt_text, reply_markup=keyboard)
-        self._info(
-            "Prompted channel unlink confirmation",
-            request_id=request_id,
-            operation="handler.channel_unlink",
-            chat=telegram_chat,
-            user=user,
-            extra={
-                "meta_channel_title": sanitize_label(channel_title),
-                "meta_subscription_count": subscription_count,
-            },
-        )
-        metrics.record_channel_unlink("prompt")
+            metrics.record_channel_unlink("prompt")
+            metrics.record_command("channel_unlink", "success")
+        except Exception:
+            metrics.record_command("channel_unlink", "error")
+            raise
 
     async def handle_channel_unlink_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -1805,9 +1825,7 @@ class BotHandlers:
                         locale=locale,
                         request_id=request_id,
                         should_markdownify=False,
-                        channel_title=(
-                            channel_chat.title or channel_chat.chat_id
-                        ),
+                        channel_title=(channel_chat.title or channel_chat.chat_id),
                     ),
                     show_alert=True,
                 )
@@ -1864,9 +1882,7 @@ class BotHandlers:
         if query.message:
             await query.edit_message_text(summary_text)
         else:
-            await context.bot.send_message(
-                chat_id=telegram_chat.id, text=summary_text
-            )
+            await context.bot.send_message(chat_id=telegram_chat.id, text=summary_text)
         self._info(
             "Completed channel unlink cleanup",
             request_id=request_id,
@@ -1884,243 +1900,269 @@ class BotHandlers:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
         request_id = new_request_id()
-        user = update.effective_user
-        message = update.message
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=update.effective_chat,
-            telegram_user=user,
-        )
-        if user is None or message is None:
-            self._warning(
-                "Received /start without required user or message context",
+        try:
+            user = update.effective_user
+            message = update.message
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=update.effective_chat,
+                telegram_user=user,
+            )
+            if user is None or message is None:
+                self._warning(
+                    "Received /start without required user or message context",
+                    request_id=request_id,
+                    operation="handler.start",
+                    chat=update.effective_chat,
+                    user=user,
+                )
+                metrics.record_command("start", "error")
+                return
+            self._debug(
+                "Handling /start command",
                 request_id=request_id,
                 operation="handler.start",
                 chat=update.effective_chat,
                 user=user,
             )
-            return
-        self._debug(
-            "Handling /start command",
-            request_id=request_id,
-            operation="handler.start",
-            chat=update.effective_chat,
-            user=user,
-        )
 
-        chat_record: DBChat | None = None
-        async with AsyncSessionLocal() as session:
-            user_repo = UserRepository(session)
-            db_user = await user_repo.get_or_create_user(
-                telegram_id=str(user.id),
-                username=user.username,
-                first_name=user.first_name,
-                last_name=user.last_name,
-            )
-            if update.effective_chat:
-                chat_record = await self._ensure_chat_record(
-                    session,
-                    telegram_chat=update.effective_chat,
-                    db_user_id=db_user.id,
-                    preferred_locale=locale_hint,
-                    request_id=request_id,
+            chat_record: DBChat | None = None
+            async with AsyncSessionLocal() as session:
+                user_repo = UserRepository(session)
+                db_user = await user_repo.get_or_create_user(
+                    telegram_id=str(user.id),
+                    username=user.username,
+                    first_name=user.first_name,
+                    last_name=user.last_name,
                 )
+                if update.effective_chat:
+                    chat_record = await self._ensure_chat_record(
+                        session,
+                        telegram_chat=update.effective_chat,
+                        db_user_id=db_user.id,
+                        preferred_locale=locale_hint,
+                        request_id=request_id,
+                    )
 
-        locale = self._resolve_locale(
-            chat=chat_record,
-            locale_hint=locale_hint,
-            telegram_chat=update.effective_chat,
-        )
+            locale = self._resolve_locale(
+                chat=chat_record,
+                locale_hint=locale_hint,
+                telegram_chat=update.effective_chat,
+            )
 
-        welcome_text = self._translate(
-            "handlers.start.welcome",
-            locale=locale,
-            request_id=request_id,
-        )
+            welcome_text = self._translate(
+                "handlers.start.welcome",
+                locale=locale,
+                request_id=request_id,
+            )
 
-        await message.reply_text(welcome_text)
-        self._debug(
-            "Completed /start command",
-            request_id=request_id,
-            operation="handler.start",
-            chat=update.effective_chat,
-            user=user,
-        )
+            await message.reply_text(welcome_text)
+            self._debug(
+                "Completed /start command",
+                request_id=request_id,
+                operation="handler.start",
+                chat=update.effective_chat,
+                user=user,
+            )
+            metrics.record_command("start", "success")
+        except Exception:
+            metrics.record_command("start", "error")
+            raise
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /help command."""
         request_id = new_request_id()
-        message = update.message
-        user = update.effective_user
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=update.effective_chat,
-            telegram_user=user,
-        )
-        if message is None:
-            self._warning(
-                "Received /help without message context",
+        try:
+            message = update.message
+            user = update.effective_user
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=update.effective_chat,
+                telegram_user=user,
+            )
+            if message is None:
+                self._warning(
+                    "Received /help without message context",
+                    request_id=request_id,
+                    operation="handler.help",
+                    chat=update.effective_chat,
+                    user=update.effective_user,
+                )
+                metrics.record_command("help", "error")
+                return
+            self._debug(
+                "Handling /help command",
                 request_id=request_id,
                 operation="handler.help",
                 chat=update.effective_chat,
                 user=update.effective_user,
             )
-            return
-        self._debug(
-            "Handling /help command",
-            request_id=request_id,
-            operation="handler.help",
-            chat=update.effective_chat,
-            user=update.effective_user,
-        )
 
-        chat_record: DBChat | None = None
-        if update.effective_chat and user:
-            async with AsyncSessionLocal() as session:
-                _db_user, chat_record = await self._get_chat_and_user(
-                    session,
-                    telegram_user=user,
-                    telegram_chat=update.effective_chat,
-                    locale_hint=locale_hint,
-                    request_id=request_id,
-                )
+            chat_record: DBChat | None = None
+            if update.effective_chat and user:
+                async with AsyncSessionLocal() as session:
+                    _db_user, chat_record = await self._get_chat_and_user(
+                        session,
+                        telegram_user=user,
+                        telegram_chat=update.effective_chat,
+                        locale_hint=locale_hint,
+                        request_id=request_id,
+                    )
 
-        locale = self._resolve_locale(
-            chat=chat_record,
-            locale_hint=locale_hint,
-            telegram_chat=update.effective_chat,
-        )
+            locale = self._resolve_locale(
+                chat=chat_record,
+                locale_hint=locale_hint,
+                telegram_chat=update.effective_chat,
+            )
 
-        help_text = self._translate(
-            "handlers.help.text",
-            locale=locale,
-            request_id=request_id,
-        )
+            help_text = self._translate(
+                "handlers.help.text",
+                locale=locale,
+                request_id=request_id,
+            )
 
-        await message.reply_text(help_text)
-        self._debug(
-            "Completed /help command",
-            request_id=request_id,
-            operation="handler.help",
-            chat=update.effective_chat,
-            user=update.effective_user,
-        )
+            await message.reply_text(help_text)
+            self._debug(
+                "Completed /help command",
+                request_id=request_id,
+                operation="handler.help",
+                chat=update.effective_chat,
+                user=update.effective_user,
+            )
+            metrics.record_command("help", "success")
+        except Exception:
+            metrics.record_command("help", "error")
+            raise
 
     async def language_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /language command for selecting chat locale."""
         request_id = new_request_id()
-        message = update.message
-        user = update.effective_user
-        telegram_chat = update.effective_chat
-        if message is None or user is None or telegram_chat is None:
-            self._warning(
-                "Received /language without required context",
+        try:
+            message = update.message
+            user = update.effective_user
+            telegram_chat = update.effective_chat
+            if message is None or user is None or telegram_chat is None:
+                self._warning(
+                    "Received /language without required context",
+                    request_id=request_id,
+                    operation="handler.language",
+                    chat=telegram_chat,
+                    user=user,
+                )
+                metrics.record_command("language", "error")
+                return
+
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
+            )
+
+            if ACLService.is_group_context(telegram_chat.type) and not await self._require_admin(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
+                on_denied=message.reply_text,
+                locale=locale_hint,
+                request_id=request_id,
+            ):
+                metrics.record_command("language", "error")
+                return
+
+            async with AsyncSessionLocal() as session:
+                _db_user, chat = await self._get_chat_and_user(
+                    session,
+                    telegram_user=user,
+                    telegram_chat=telegram_chat,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
+                )
+
+            locale = self._resolve_locale(
+                chat=chat,
+                locale_hint=locale_hint,
+                telegram_chat=telegram_chat,
+            )
+
+            prompt_text = self._language_prompt(locale=locale, request_id=request_id)
+            keyboard = self._language_keyboard(locale=locale, request_id=request_id)
+
+            await message.reply_text(prompt_text, reply_markup=keyboard)
+            self._debug(
+                "Rendered language selection prompt",
                 request_id=request_id,
                 operation="handler.language",
                 chat=telegram_chat,
                 user=user,
+                extra={"meta_locale": locale},
             )
-            return
-
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-        )
-
-        if ACLService.is_group_context(telegram_chat.type) and not await self._require_admin(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-            on_denied=message.reply_text,
-            locale=locale_hint,
-            request_id=request_id,
-        ):
-            return
-
-        async with AsyncSessionLocal() as session:
-            _db_user, chat = await self._get_chat_and_user(
-                session,
-                telegram_user=user,
-                telegram_chat=telegram_chat,
-                locale_hint=locale_hint,
-                request_id=request_id,
-            )
-
-        locale = self._resolve_locale(
-            chat=chat,
-            locale_hint=locale_hint,
-            telegram_chat=telegram_chat,
-        )
-
-        prompt_text = self._language_prompt(locale=locale, request_id=request_id)
-        keyboard = self._language_keyboard(locale=locale, request_id=request_id)
-
-        await message.reply_text(prompt_text, reply_markup=keyboard)
-        self._debug(
-            "Rendered language selection prompt",
-            request_id=request_id,
-            operation="handler.language",
-            chat=telegram_chat,
-            user=user,
-            extra={"meta_locale": locale},
-        )
+            metrics.record_command("language", "success")
+        except Exception:
+            metrics.record_command("language", "error")
+            raise
 
     async def subscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /subscribe command."""
         request_id = new_request_id()
-        message = update.message
-        user = update.effective_user
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=update.effective_chat,
-            telegram_user=user,
-        )
-        if message is None:
-            self._warning(
-                "Received /subscribe without message context",
-                request_id=request_id,
-                operation="handler.subscribe",
-                chat=update.effective_chat,
-                user=update.effective_user,
+        try:
+            message = update.message
+            user = update.effective_user
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=update.effective_chat,
+                telegram_user=user,
             )
-            return
-
-        locale = self._resolve_locale(
-            chat=None,
-            locale_hint=locale_hint,
-            telegram_chat=update.effective_chat,
-        )
-
-        if not context.args:
-            await message.reply_text(
-                self._translate(
-                    "handlers.subscribe.missing_url",
-                    locale=locale,
+            if message is None:
+                self._warning(
+                    "Received /subscribe without message context",
                     request_id=request_id,
-                ),
+                    operation="handler.subscribe",
+                    chat=update.effective_chat,
+                    user=update.effective_user,
+                )
+                metrics.record_command("subscribe", "error")
+                return
+
+            locale = self._resolve_locale(
+                chat=None,
+                locale_hint=locale_hint,
+                telegram_chat=update.effective_chat,
             )
+
+            if not context.args:
+                await message.reply_text(
+                    self._translate(
+                        "handlers.subscribe.missing_url",
+                        locale=locale,
+                        request_id=request_id,
+                    ),
+                )
+                self._debug(
+                    "Subscribe command missing URL argument",
+                    request_id=request_id,
+                    operation="handler.subscribe",
+                    chat=update.effective_chat,
+                    user=update.effective_user,
+                )
+                metrics.record_command("subscribe", "error")
+                return
+
+            url = context.args[0]
             self._debug(
-                "Subscribe command missing URL argument",
+                "Dispatching YouTube URL from /subscribe",
+                request_id=request_id,
+                operation="handler.subscribe",
+                chat=update.effective_chat,
+                user=update.effective_user,
+                extra={"meta_url_preview": sanitize_label(url)},
+            )
+            await self.handle_youtube_url(update, context, url, request_id=request_id)
+            self._debug(
+                "Finished /subscribe command",
                 request_id=request_id,
                 operation="handler.subscribe",
                 chat=update.effective_chat,
                 user=update.effective_user,
             )
-            return
-
-        url = context.args[0]
-        self._debug(
-            "Dispatching YouTube URL from /subscribe",
-            request_id=request_id,
-            operation="handler.subscribe",
-            chat=update.effective_chat,
-            user=update.effective_user,
-            extra={"meta_url_preview": sanitize_label(url)},
-        )
-        await self.handle_youtube_url(update, context, url, request_id=request_id)
-        self._debug(
-            "Finished /subscribe command",
-            request_id=request_id,
-            operation="handler.subscribe",
-            chat=update.effective_chat,
-            user=update.effective_user,
-        )
+            metrics.record_command("subscribe", "success")
+        except Exception:
+            metrics.record_command("subscribe", "error")
+            raise
 
     async def _get_chat_and_user(
         self,
@@ -2163,63 +2205,115 @@ class BotHandlers:
     async def list_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /list command."""
         request_id = new_request_id()
-        user = update.effective_user
-        message = update.message
-        telegram_chat = update.effective_chat
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-        )
-        if user is None or message is None or telegram_chat is None:
-            self._warning(
-                "Received /list without required context",
+        try:
+            user = update.effective_user
+            message = update.message
+            telegram_chat = update.effective_chat
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
+            )
+            if user is None or message is None or telegram_chat is None:
+                self._warning(
+                    "Received /list without required context",
+                    request_id=request_id,
+                    operation="handler.list",
+                    chat=telegram_chat,
+                    user=user,
+                )
+                metrics.record_command("list", "error")
+                return
+
+            if not await self._require_admin(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
+                on_denied=message.reply_text,
+                locale=locale_hint,
+                request_id=request_id,
+            ):
+                metrics.record_command("list", "error")
+                return
+            self._debug(
+                "Listing subscriptions",
                 request_id=request_id,
                 operation="handler.list",
                 chat=telegram_chat,
                 user=user,
             )
-            return
 
-        if not await self._require_admin(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-            on_denied=message.reply_text,
-            locale=locale_hint,
-            request_id=request_id,
-        ):
-            return
-        self._debug(
-            "Listing subscriptions",
-            request_id=request_id,
-            operation="handler.list",
-            chat=telegram_chat,
-            user=user,
-        )
-
-        async with AsyncSessionLocal() as session:
-            subscription_repo = SubscriptionRepository(session)
-            db_user, actor_chat = await self._get_chat_and_user(
-                session,
-                telegram_user=user,
-                telegram_chat=telegram_chat,
-                locale_hint=locale_hint,
-                request_id=request_id,
-            )
-            if actor_chat is None:
-                locale = self._resolve_locale(
-                    chat=None,
-                    locale_hint=locale_hint,
+            async with AsyncSessionLocal() as session:
+                subscription_repo = SubscriptionRepository(session)
+                db_user, actor_chat = await self._get_chat_and_user(
+                    session,
+                    telegram_user=user,
                     telegram_chat=telegram_chat,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
                 )
+                if actor_chat is None:
+                    locale = self._resolve_locale(
+                        chat=None,
+                        locale_hint=locale_hint,
+                        telegram_chat=telegram_chat,
+                    )
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.list.no_subscriptions",
+                            locale=locale,
+                            request_id=request_id,
+                        ),
+                    )
+                    self._debug(
+                        "List command found no chat record",
+                        request_id=request_id,
+                        operation="handler.list",
+                        chat=telegram_chat,
+                        user=user,
+                    )
+                    return
+
+                context_state = await self._build_command_context(
+                    session,
+                    db_user=db_user,
+                    actor_chat=actor_chat,
+                    telegram_chat=telegram_chat,
+                    telegram_user=user,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
+                )
+                if context_state.context_cleared:
+                    await message.reply_text(
+                        self._translate(
+                            context_state.context_message_key or "handlers.channel_context.expired",
+                            locale=context_state.locale,
+                            request_id=request_id,
+                            **context_state.context_message_params,
+                        ),
+                    )
+                    return
+                target_chat = context_state.target_chat
+                locale = context_state.locale
+                subscriptions = await subscription_repo.get_chat_subscriptions(
+                    target_chat.id,
+                    request_id=request_id,
+                )
+
+            if not subscriptions:
+                key = "handlers.list.no_active_subscriptions"
+                params: dict[str, str] = {}
+                if target_chat.chat_type == "channel":
+                    key = "handlers.list.no_active_subscriptions_channel"
+                    params["channel_title"] = target_chat.title or target_chat.chat_id
                 await message.reply_text(
                     self._translate(
-                        "handlers.list.no_subscriptions",
+                        key,
                         locale=locale,
                         request_id=request_id,
+                        **params,
                     ),
                 )
                 self._debug(
-                    "List command found no chat record",
+                    "List command found zero subscriptions",
                     request_id=request_id,
                     operation="handler.list",
                     chat=telegram_chat,
@@ -2227,143 +2321,159 @@ class BotHandlers:
                 )
                 return
 
-            context_state = await self._build_command_context(
-                session,
-                db_user=db_user,
-                actor_chat=actor_chat,
-                telegram_chat=telegram_chat,
-                telegram_user=user,
-                locale_hint=locale_hint,
+            text = format_subscription_list(
+                subscriptions,
+                chat_title=target_chat.title
+                if target_chat.chat_type != "channel"
+                else target_chat.title,
+                chat_type=target_chat.chat_type,
+                locale=locale,
                 request_id=request_id,
             )
-            if context_state.context_cleared:
-                await message.reply_text(
-                    self._translate(
-                        context_state.context_message_key or "handlers.channel_context.expired",
-                        locale=context_state.locale,
-                        request_id=request_id,
-                        **context_state.context_message_params,
-                    ),
-                )
-                return
-            target_chat = context_state.target_chat
-            locale = context_state.locale
-            subscriptions = await subscription_repo.get_chat_subscriptions(
-                target_chat.id,
+            text = self._prepend_context_notice(
+                text,
+                target_chat=target_chat,
+                locale=locale,
                 request_id=request_id,
             )
 
-        if not subscriptions:
-            key = "handlers.list.no_active_subscriptions"
-            params: dict[str, str] = {}
-            if target_chat.chat_type == "channel":
-                key = "handlers.list.no_active_subscriptions_channel"
-                params["channel_title"] = (
-                    target_chat.title or target_chat.chat_id
-                )
-            await message.reply_text(
-                self._translate(
-                    key,
-                    locale=locale,
-                    request_id=request_id,
-                    **params,
-                ),
-            )
+            await message.reply_text(text)
             self._debug(
-                "List command found zero subscriptions",
+                "List command completed",
                 request_id=request_id,
                 operation="handler.list",
                 chat=telegram_chat,
                 user=user,
+                extra={"meta_subscription_count": len(subscriptions)},
             )
-            return
-
-        text = format_subscription_list(
-            subscriptions,
-            chat_title=target_chat.title
-            if target_chat.chat_type != "channel"
-            else target_chat.title,
-            chat_type=target_chat.chat_type,
-            locale=locale,
-            request_id=request_id,
-        )
-        text = self._prepend_context_notice(
-            text,
-            target_chat=target_chat,
-            locale=locale,
-            request_id=request_id,
-        )
-
-        await message.reply_text(text)
-        self._debug(
-            "List command completed",
-            request_id=request_id,
-            operation="handler.list",
-            chat=telegram_chat,
-            user=user,
-            extra={"meta_subscription_count": len(subscriptions)},
-        )
+            metrics.record_command("list", "success")
+        except Exception:
+            metrics.record_command("list", "error")
+            raise
 
     async def unsubscribe_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /unsubscribe command."""
         request_id = new_request_id()
-        user = update.effective_user
-        message = update.message
-        telegram_chat = update.effective_chat
-        locale_hint = self._infer_locale_hint(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-        )
-        if user is None or message is None or telegram_chat is None:
-            self._warning(
-                "Received /unsubscribe without required context",
+        try:
+            user = update.effective_user
+            message = update.message
+            telegram_chat = update.effective_chat
+            locale_hint = self._infer_locale_hint(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
+            )
+            if user is None or message is None or telegram_chat is None:
+                self._warning(
+                    "Received /unsubscribe without required context",
+                    request_id=request_id,
+                    operation="handler.unsubscribe",
+                    chat=telegram_chat,
+                    user=user,
+                )
+                metrics.record_command("unsubscribe", "error")
+                return
+
+            if not await self._require_admin(
+                telegram_chat=telegram_chat,
+                telegram_user=user,
+                on_denied=message.reply_text,
+                locale=locale_hint,
+                request_id=request_id,
+            ):
+                metrics.record_command("unsubscribe", "error")
+                return
+            self._debug(
+                "Preparing unsubscribe options",
                 request_id=request_id,
                 operation="handler.unsubscribe",
                 chat=telegram_chat,
                 user=user,
             )
-            return
 
-        if not await self._require_admin(
-            telegram_chat=telegram_chat,
-            telegram_user=user,
-            on_denied=message.reply_text,
-            locale=locale_hint,
-            request_id=request_id,
-        ):
-            return
-        self._debug(
-            "Preparing unsubscribe options",
-            request_id=request_id,
-            operation="handler.unsubscribe",
-            chat=telegram_chat,
-            user=user,
-        )
-
-        async with AsyncSessionLocal() as session:
-            subscription_repo = SubscriptionRepository(session)
-            db_user, actor_chat = await self._get_chat_and_user(
-                session,
-                telegram_user=user,
-                telegram_chat=telegram_chat,
-                locale_hint=locale_hint,
-                request_id=request_id,
-            )
-            if actor_chat is None:
-                locale = self._resolve_locale(
-                    chat=None,
-                    locale_hint=locale_hint,
+            async with AsyncSessionLocal() as session:
+                subscription_repo = SubscriptionRepository(session)
+                db_user, actor_chat = await self._get_chat_and_user(
+                    session,
+                    telegram_user=user,
                     telegram_chat=telegram_chat,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
                 )
+                if actor_chat is None:
+                    locale = self._resolve_locale(
+                        chat=None,
+                        locale_hint=locale_hint,
+                        telegram_chat=telegram_chat,
+                    )
+                    await message.reply_text(
+                        self._translate(
+                            "handlers.unsubscribe.no_subscriptions",
+                            locale=locale,
+                            request_id=request_id,
+                        )
+                    )
+                    self._debug(
+                        "Unsubscribe command has no chat binding",
+                        request_id=request_id,
+                        operation="handler.unsubscribe",
+                        chat=telegram_chat,
+                        user=user,
+                    )
+                    return
+
+                context_state = await self._build_command_context(
+                    session,
+                    db_user=db_user,
+                    actor_chat=actor_chat,
+                    telegram_chat=telegram_chat,
+                    telegram_user=user,
+                    locale_hint=locale_hint,
+                    request_id=request_id,
+                )
+                if context_state.context_cleared:
+                    await message.reply_text(
+                        self._translate(
+                            context_state.context_message_key or "handlers.channel_context.expired",
+                            locale=context_state.locale,
+                            request_id=request_id,
+                            **context_state.context_message_params,
+                        )
+                    )
+                    self._debug(
+                        "Aborting /unsubscribe due to cleared channel context",
+                        request_id=request_id,
+                        operation="handler.unsubscribe",
+                        chat=telegram_chat,
+                        user=user,
+                        extra={
+                            "meta_context_reason": context_state.context_message_key
+                            or "handlers.channel_context.expired",
+                        },
+                    )
+                    return
+                target_chat = context_state.target_chat
+                locale = context_state.locale
+                subscriptions = await subscription_repo.get_chat_subscriptions(
+                    target_chat.id,
+                    request_id=request_id,
+                )
+
+            if not subscriptions:
+                key = "handlers.unsubscribe.no_active_subscriptions"
+                params: dict[str, str] = {}
+                if target_chat.chat_type == "channel":
+                    key = "handlers.unsubscribe.no_active_subscriptions_channel"
+                    params["channel_title"] = target_chat.title or target_chat.chat_id
                 await message.reply_text(
                     self._translate(
-                        "handlers.unsubscribe.no_subscriptions",
+                        key,
                         locale=locale,
                         request_id=request_id,
-                    )
+                        **params,
+                    ),
                 )
                 self._debug(
-                    "Unsubscribe command has no chat binding",
+                    "Unsubscribe command found zero subscriptions",
                     request_id=request_id,
                     operation="handler.unsubscribe",
                     chat=telegram_chat,
@@ -2371,115 +2481,57 @@ class BotHandlers:
                 )
                 return
 
-            context_state = await self._build_command_context(
-                session,
-                db_user=db_user,
-                actor_chat=actor_chat,
-                telegram_chat=telegram_chat,
-                telegram_user=user,
-                locale_hint=locale_hint,
-                request_id=request_id,
-            )
-            if context_state.context_cleared:
-                await message.reply_text(
-                    self._translate(
-                        context_state.context_message_key or "handlers.channel_context.expired",
-                        locale=context_state.locale,
-                        request_id=request_id,
-                        **context_state.context_message_params,
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        text=f"❌ {sub.channel.channel_name}",
+                        callback_data=f"unsub_{sub.channel.id}",
                     )
-                )
-                self._debug(
-                    "Aborting /unsubscribe due to cleared channel context",
-                    request_id=request_id,
-                    operation="handler.unsubscribe",
-                    chat=telegram_chat,
-                    user=user,
-                    extra={
-                        "meta_context_reason": context_state.context_message_key
-                        or "handlers.channel_context.expired",
-                    },
-                )
-                return
-            target_chat = context_state.target_chat
-            locale = context_state.locale
-            subscriptions = await subscription_repo.get_chat_subscriptions(
-                target_chat.id,
-                request_id=request_id,
+                ]
+                for sub in subscriptions
+            ]
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        self._translate(
+                            "handlers.unsubscribe.cancel_button",
+                            locale=locale,
+                            request_id=request_id,
+                            should_markdownify=False,
+                        ),
+                        callback_data="cancel",
+                    )
+                ]
             )
 
-        if not subscriptions:
-            key = "handlers.unsubscribe.no_active_subscriptions"
-            params: dict[str, str] = {}
-            if target_chat.chat_type == "channel":
-                key = "handlers.unsubscribe.no_active_subscriptions_channel"
-                params["channel_title"] = (
-                    target_chat.title or target_chat.chat_id
-                )
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            prompt_text = self._translate(
+                "handlers.unsubscribe.select_prompt",
+                locale=locale,
+                request_id=request_id,
+            )
+            prompt_text = self._prepend_context_notice(
+                prompt_text,
+                target_chat=target_chat,
+                locale=locale,
+                request_id=request_id,
+            )
             await message.reply_text(
-                self._translate(
-                    key,
-                    locale=locale,
-                    request_id=request_id,
-                    **params,
-                ),
+                prompt_text,
+                reply_markup=reply_markup,
             )
             self._debug(
-                "Unsubscribe command found zero subscriptions",
+                "Rendered unsubscribe keyboard",
                 request_id=request_id,
                 operation="handler.unsubscribe",
                 chat=telegram_chat,
                 user=user,
+                extra={"meta_subscription_count": len(subscriptions)},
             )
-            return
-
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    text=f"❌ {sub.channel.channel_name}",
-                    callback_data=f"unsub_{sub.channel.id}",
-                )
-            ]
-            for sub in subscriptions
-        ]
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    self._translate(
-                        "handlers.unsubscribe.cancel_button",
-                        locale=locale,
-                        request_id=request_id,
-                        should_markdownify=False,
-                    ),
-                    callback_data="cancel",
-                )
-            ]
-        )
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        prompt_text = self._translate(
-            "handlers.unsubscribe.select_prompt",
-            locale=locale,
-            request_id=request_id,
-        )
-        prompt_text = self._prepend_context_notice(
-            prompt_text,
-            target_chat=target_chat,
-            locale=locale,
-            request_id=request_id,
-        )
-        await message.reply_text(
-            prompt_text,
-            reply_markup=reply_markup,
-        )
-        self._debug(
-            "Rendered unsubscribe keyboard",
-            request_id=request_id,
-            operation="handler.unsubscribe",
-            chat=telegram_chat,
-            user=user,
-            extra={"meta_subscription_count": len(subscriptions)},
-        )
+            metrics.record_command("unsubscribe", "success")
+        except Exception:
+            metrics.record_command("unsubscribe", "error")
+            raise
 
     async def handle_language_callback(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
